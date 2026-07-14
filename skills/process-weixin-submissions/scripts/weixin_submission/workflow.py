@@ -38,6 +38,13 @@ MISSING_CAPABILITIES = (
 
 def initialize_scripted_chat(repository: Path, chat_path: Path) -> dict[str, object]:
     metadata = initialize_repository(repository)
+    existing_intake = metadata.get("intake")
+    if isinstance(existing_intake, dict) and isinstance(
+        existing_intake.get("last_marker_id"), str
+    ):
+        raise WorkflowError(
+            "Scripted intake is already initialized; run the next window instead"
+        )
     marker_id, conversation = establish_baseline(chat_path)
     metadata["intake"] = {
         "adapter": "scripted_chat",

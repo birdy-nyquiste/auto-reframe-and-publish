@@ -22,7 +22,7 @@ Use the bundled script with the Python available to the running Agent:
 python scripts/process_weixin_submissions.py <operation> ...
 ```
 
-For `run`, read [references/scripted-input.md](references/scripted-input.md), then pass all required arguments. Use only the `fake` Blog adapter in the current tracer implementation. Return the script's JSON result and the paths it reports to the operator.
+For `run`, read [references/scripted-input.md](references/scripted-input.md), then pass all required arguments. The current tracer always uses the bundled fake Blog adapter. Return the script's JSON result and the paths it reports to the operator.
 
 Do not hand-edit task-library records, rewrite artifacts, delivery requests, delivery responses, or reports. The script owns those deterministic mutations.
 
@@ -36,4 +36,3 @@ Do not hand-edit task-library records, rewrite artifacts, delivery requests, del
 ## Complete the operation
 
 Consider `run` successful only when the JSON result reports `status: completed` and the referenced run report exists. Surface any non-zero script exit and stderr without inventing missing progress.
-

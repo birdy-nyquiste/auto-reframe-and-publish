@@ -28,9 +28,7 @@ Invoke the tracer from the Skill directory:
 python scripts/process_weixin_submissions.py run \
   --repository <absolute-task-repository-path> \
   --input <absolute-scripted-input-path> \
-  --blog-adapter fake \
   --fake-blog-directory <absolute-fake-blog-path>
 ```
 
 The target is required. Requirements may be omitted; the tracer records that the default rules were selected but deliberately uses a placeholder rewrite until the approved policy is integrated.
-

@@ -28,8 +28,6 @@ class ScriptedSubmissionTest(unittest.TestCase):
                     str(repository),
                     "--input",
                     str(FIXTURE),
-                    "--blog-adapter",
-                    "fake",
                     "--fake-blog-directory",
                     str(fake_blog),
                 ],
@@ -44,11 +42,18 @@ class ScriptedSubmissionTest(unittest.TestCase):
             run_id = result["run_id"]
             task_id = result["task_ids"][0]
 
+            self.assertEqual(result["validation_scope"], "ticket_01_scripted_tracer")
+            self.assertNotIn("readiness", result)
+            self.assertIn("real Blog API", result["missing_capabilities"])
+
             run = json.loads(
                 (repository / "runs" / run_id / "run.json").read_text("utf-8")
             )
             task_directory = repository / "tasks" / task_id
             task = json.loads((task_directory / "task.json").read_text("utf-8"))
+            source = json.loads(
+                (task_directory / "sources" / "article.json").read_text("utf-8")
+            )
             rewrite = (task_directory / "rewrite" / "content.md").read_text("utf-8")
             rewrite_manifest = json.loads(
                 (task_directory / "rewrite" / "manifest.json").read_text("utf-8")
@@ -67,9 +72,10 @@ class ScriptedSubmissionTest(unittest.TestCase):
             self.assertEqual(run["status"], "completed")
             self.assertEqual(run["created_task_ids"], [task_id])
             self.assertEqual(run["attempted_task_ids"], [task_id])
-            self.assertEqual(task["milestone"], "external_draft_confirmed")
+            self.assertEqual(task["milestone"], "fake_draft_confirmed")
             self.assertEqual(task["target_id"], "author-nyquist")
             self.assertEqual(task["external_draft"]["draft_id"], "draft-000001")
+            self.assertEqual(source["title"], "让复杂工作流保持可恢复")
             self.assertIn("让复杂工作流保持可恢复", rewrite)
             self.assertEqual(rewrite_manifest["artifact_kind"], "placeholder_rewrite")
             self.assertEqual(delivery_request["idempotency_key"], task_id)

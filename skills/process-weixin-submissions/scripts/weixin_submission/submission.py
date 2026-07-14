@@ -26,50 +26,106 @@ class Submission:
     source: StructuredSource
 
 
+@dataclass(frozen=True)
+class TaskHeader:
+    target_id: str
+    requirements: str | None
+    article_count: int
+
+
+class TaskHeaderError(WorkflowError):
+    def __init__(
+        self, reason: str, message: str, target_id: str | None = None
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.target_id = target_id
+
+
 def require_string(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise WorkflowError(f"{field} must be a non-empty string")
     return value
 
 
-def parse_task_header(text: str) -> tuple[str, str | None]:
+def parse_task_header(text: str) -> TaskHeader:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "#投稿":
-        raise WorkflowError("Task header must start with #投稿")
+        raise TaskHeaderError(
+            "missing_submission_marker", "Task header must start with #投稿"
+        )
 
     target_id: str | None = None
     requirements: str | None = None
+    article_count = 1
+    seen_fields: set[str] = set()
     for index, line in enumerate(lines[1:], start=1):
-        if line.startswith("目标:"):
-            target_id = line.removeprefix("目标:").strip()
+        if not line.strip():
             continue
-        if line.startswith("要求:"):
-            first_line = line.removeprefix("要求:").strip()
+        if ":" not in line:
+            raise TaskHeaderError(
+                "unknown_control_field",
+                f"Unknown task-header line: {line}",
+                target_id,
+            )
+        field, value = (part.strip() for part in line.split(":", 1))
+        if field not in ("目标", "要求", "文章数"):
+            raise TaskHeaderError(
+                "unknown_control_field",
+                f"Unknown task-header field: {field}",
+                target_id,
+            )
+        if field in seen_fields:
+            raise TaskHeaderError(
+                "duplicate_control_field",
+                f"Duplicate task-header field: {field}",
+                target_id,
+            )
+        seen_fields.add(field)
+        if field == "目标":
+            target_id = value
+            continue
+        if field == "文章数":
+            try:
+                article_count = int(value)
+            except ValueError as error:
+                raise TaskHeaderError(
+                    "unsupported_article_count",
+                    "文章数 must be 1 in the current version",
+                    target_id,
+                ) from error
+            if article_count != 1:
+                raise TaskHeaderError(
+                    "unsupported_article_count",
+                    "Only one article is supported in the current version",
+                    target_id,
+                )
+            continue
+        if field == "要求":
+            first_line = value
             remainder = "\n".join(lines[index + 1 :]).strip()
             requirements = "\n".join(part for part in (first_line, remainder) if part) or None
             break
 
     if not target_id:
-        raise WorkflowError("Task header is missing a non-empty target")
-    return target_id, requirements
+        raise TaskHeaderError(
+            "missing_target", "Task header is missing a non-empty target"
+        )
+    return TaskHeader(target_id, requirements, article_count)
 
 
-def parse_scripted_input(path: Path) -> Submission:
-    payload = read_json(path)
-    if payload.get("schema_version") != SCHEMA_VERSION:
-        raise WorkflowError(f"scripted input schema_version must be {SCHEMA_VERSION}")
-    window_id = require_string(payload.get("window_id"), "window_id")
-    messages = payload.get("messages")
+def parse_submission_messages(messages_value: object, window_id: str) -> Submission:
+    messages = messages_value
     if not isinstance(messages, list) or len(messages) != 2:
-        raise WorkflowError("Ticket 01 scripted input must contain exactly two messages")
+        raise WorkflowError("A submission candidate must contain exactly two messages")
     header, article = messages
-    if not isinstance(header, dict) or header.get("kind") != "task_header":
-        raise WorkflowError("The first message must be a task_header")
+    if not isinstance(header, dict) or header.get("kind") not in ("task_header", "text"):
+        raise WorkflowError("The first message must be task-header text")
     if not isinstance(article, dict) or article.get("kind") != "official_account_article":
         raise WorkflowError("The second message must be an official_account_article")
 
     header_text = require_string(header.get("text"), "task header text")
-    target_id, requirements = parse_task_header(header_text)
+    task_header = parse_task_header(header_text)
     title = require_string(article.get("title"), "article title")
     body = require_string(article.get("body"), "article body")
     source_url_value = article.get("source_url")
@@ -84,8 +140,8 @@ def parse_scripted_input(path: Path) -> Submission:
     return Submission(
         window_id=window_id,
         header_text=header_text,
-        target_id=target_id,
-        requirements=requirements,
+        target_id=task_header.target_id,
+        requirements=task_header.requirements,
         source=StructuredSource(
             title=title,
             body=body,

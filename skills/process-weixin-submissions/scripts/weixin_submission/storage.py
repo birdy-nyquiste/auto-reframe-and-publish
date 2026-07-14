@@ -9,7 +9,7 @@ from typing import Any
 
 
 REPOSITORY_VERSION = 1
-VALIDATION_SCOPE = "ticket_01_scripted_tracer"
+VALIDATION_SCOPE = "ticket_02_scripted_intake"
 
 
 class WorkflowError(Exception):

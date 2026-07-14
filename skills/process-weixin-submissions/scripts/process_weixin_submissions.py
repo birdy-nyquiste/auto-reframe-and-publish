@@ -7,8 +7,11 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from weixin_submission.storage import WorkflowError, initialize_repository, repository_status
-from weixin_submission.workflow import run_scripted_submission
+from weixin_submission.storage import WorkflowError, repository_status
+from weixin_submission.workflow import (
+    initialize_scripted_chat,
+    run_scripted_chat,
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -19,10 +22,11 @@ def create_parser() -> argparse.ArgumentParser:
 
     initialize = subparsers.add_parser("initialize", help="Initialize a task repository.")
     initialize.add_argument("--repository", type=Path, required=True)
+    initialize.add_argument("--scripted-chat", type=Path, required=True)
 
-    run = subparsers.add_parser("run", help="Run the Ticket 01 scripted tracer.")
+    run = subparsers.add_parser("run", help="Run the next scripted chat window.")
     run.add_argument("--repository", type=Path, required=True)
-    run.add_argument("--input", type=Path, required=True)
+    run.add_argument("--scripted-chat", type=Path, required=True)
     run.add_argument("--fake-blog-directory", type=Path, required=True)
 
     status = subparsers.add_parser("status", help="Read task repository status.")
@@ -38,15 +42,14 @@ def create_parser() -> argparse.ArgumentParser:
 
 def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if arguments.operation == "initialize":
-        metadata = initialize_repository(arguments.repository)
-        return 0, {
-            "status": "initialized",
-            "repository": str(arguments.repository.resolve()),
-            **metadata,
-        }
+        return 0, initialize_scripted_chat(
+            arguments.repository, arguments.scripted_chat
+        )
     if arguments.operation == "run":
-        return 0, run_scripted_submission(
-            arguments.repository, arguments.input, arguments.fake_blog_directory
+        return 0, run_scripted_chat(
+            arguments.repository,
+            arguments.scripted_chat,
+            arguments.fake_blog_directory,
         )
     if arguments.operation == "status":
         return 0, repository_status(arguments.repository)

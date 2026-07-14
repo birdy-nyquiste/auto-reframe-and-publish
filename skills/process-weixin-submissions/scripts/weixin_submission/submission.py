@@ -10,11 +10,7 @@ SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
-class Submission:
-    window_id: str
-    header_text: str
-    target_id: str
-    requirements: str | None
+class StructuredSource:
     title: str
     body: str
     source_url: str | None
@@ -22,11 +18,12 @@ class Submission:
 
 
 @dataclass(frozen=True)
-class StructuredSource:
-    title: str
-    body: str
-    source_url: str | None
-    images: tuple[str, ...]
+class Submission:
+    window_id: str
+    header_text: str
+    target_id: str
+    requirements: str | None
+    source: StructuredSource
 
 
 def require_string(value: object, field: str) -> str:
@@ -89,20 +86,22 @@ def parse_scripted_input(path: Path) -> Submission:
         header_text=header_text,
         target_id=target_id,
         requirements=requirements,
-        title=title,
-        body=body,
-        source_url=source_url_value,
-        images=tuple(images_value),
+        source=StructuredSource(
+            title=title,
+            body=body,
+            source_url=source_url_value,
+            images=tuple(images_value),
+        ),
     )
 
 
-def structured_source_record(submission: Submission) -> dict[str, object]:
+def structured_source_record(source: StructuredSource) -> dict[str, object]:
     return {
         "schema_version": SCHEMA_VERSION,
-        "title": submission.title,
-        "body": submission.body,
-        "source_url": submission.source_url,
-        "images": list(submission.images),
+        "title": source.title,
+        "body": source.body,
+        "source_url": source.source_url,
+        "images": list(source.images),
     }
 
 
@@ -129,4 +128,3 @@ def build_placeholder_rewrite(
         f"## 编辑要求\n\n{requirement_note}\n\n"
         f"## 正文\n\n{source.body}\n"
     )
-

@@ -15,7 +15,10 @@ from .submission import (
 
 
 MISSING_CAPABILITIES = (
-    "durable state machine and retries",
+    "JSON Schema and transition validation",
+    "writer locking, event history, and crash recovery",
+    "durable retries",
+    "full capture and structured-source validation",
     "WeChat and Windows Computer Use",
     "approved rewrite policy",
     "real Blog API",
@@ -69,15 +72,15 @@ def run_scripted_submission(
         "window_id": submission.window_id,
         "header_text": submission.header_text,
         "article": {
-            "title": submission.title,
-            "body": submission.body,
-            "source_url": submission.source_url,
-            "images": list(submission.images),
+            "title": submission.source.title,
+            "body": submission.source.body,
+            "source_url": submission.source.source_url,
+            "images": list(submission.source.images),
         },
     }
     write_json(task_directory / "raw" / "submission.json", raw_submission)
     source_path = task_directory / "sources" / "article.json"
-    write_json(source_path, structured_source_record(submission))
+    write_json(source_path, structured_source_record(submission.source))
     source = load_structured_source(source_path)
 
     rewrite = build_placeholder_rewrite(submission, source)
@@ -148,4 +151,3 @@ def run_scripted_submission(
         "validation_scope": VALIDATION_SCOPE,
         "missing_capabilities": list(MISSING_CAPABILITIES),
     }
-

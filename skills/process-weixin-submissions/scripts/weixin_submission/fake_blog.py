@@ -23,4 +23,3 @@ class FakeBlogAdapter:
         }
         write_json(drafts / f"{draft_id}.json", {"request": request, "response": response})
         return response
-

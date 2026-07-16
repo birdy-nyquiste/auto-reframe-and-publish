@@ -304,6 +304,7 @@ def _run_candidates(
                     "task_id": task_id,
                     "status": "fake_draft_confirmed",
                     "draft_id": delivery_response["draft_id"],
+                    "preview_url": delivery_response["preview_url"],
                 }
     except SimulatedInterruption as error:
         run_record["completed_at"] = utc_now()
@@ -396,6 +397,7 @@ def _result_from_task(task_record: dict[str, Any]) -> dict[str, object]:
             "task_id": str(task_record["task_id"]),
             "status": "fake_draft_confirmed",
             "draft_id": str(external_draft["draft_id"]),
+            "preview_url": str(external_draft["preview_url"]),
         }
     blocker = task_record["blocker"]
     if isinstance(blocker, dict):
@@ -792,6 +794,8 @@ def _render_report(
         line = f"- {result['task_id']}: {result['status']}"
         if result.get("draft_id"):
             line += f" ({result['draft_id']})"
+        if result.get("preview_url"):
+            line += f" {result['preview_url']}"
         if result.get("blocker_reason"):
             line += f" ({result['blocker_reason']})"
         lines.append(line)

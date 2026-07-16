@@ -250,6 +250,15 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
             {result["status"] for result in second["task_results"]},
             {"fake_draft_confirmed", "needs_input", "permanent_failure"},
         )
+        completed_result = next(
+            result
+            for result in second["task_results"]
+            if result["status"] == "fake_draft_confirmed"
+        )
+        self.assertEqual(
+            completed_result["preview_url"],
+            "https://blog.example.test/drafts/draft-000002",
+        )
         failed_historical = json.loads(historical_path.read_text(encoding="utf-8"))
         self.assertEqual(failed_historical["blocker"]["kind"], "permanent_failure")
         completed_new = json.loads(
@@ -265,6 +274,7 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
         report = Path(second["report_path"]).read_text(encoding="utf-8")
         self.assertIn("Validation scope: core_validated", report)
         self.assertIn(historical_task_id, report)
+        self.assertIn(str(completed_result["preview_url"]), report)
         chat = json.loads(self.chat.read_text(encoding="utf-8"))
         markers = [
             message for message in chat["messages"] if message["kind"] == "batch_marker"
@@ -302,6 +312,34 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
             for message in json.loads(self.chat.read_text(encoding="utf-8"))["messages"]
         )
         self.assertEqual(marker_count_after, marker_count_before)
+
+    def test_status_reports_configurable_disk_warning_without_writing(self) -> None:
+        self.initialize()
+        before = {
+            str(path.relative_to(self.repository)): path.read_bytes()
+            for path in self.repository.rglob("*")
+            if path.is_file()
+        }
+
+        result = run_cli(
+            "status",
+            "--repository",
+            self.repository,
+            "--disk-warning-bytes",
+            1,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = json.loads(result.stdout)
+        self.assertGreater(status["disk_usage"]["bytes"], 1)
+        self.assertEqual(status["disk_usage"]["warning_threshold_bytes"], 1)
+        self.assertTrue(status["disk_usage"]["warning"])
+        after = {
+            str(path.relative_to(self.repository)): path.read_bytes()
+            for path in self.repository.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(after, before)
 
 
 if __name__ == "__main__":

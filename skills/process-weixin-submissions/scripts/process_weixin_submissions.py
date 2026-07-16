@@ -48,6 +48,7 @@ def create_parser() -> argparse.ArgumentParser:
 
     status = subparsers.add_parser("status", help="Read task repository status.")
     status.add_argument("--repository", type=Path, required=True)
+    status.add_argument("--disk-warning-bytes", type=int)
 
     retry = subparsers.add_parser("retry", help="Re-enable a retry-exhausted task.")
     retry.add_argument("--repository", type=Path, required=True)
@@ -74,7 +75,9 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 arguments.scripted_clipboard,
             )
     if arguments.operation == "status":
-        return 0, repository_status(arguments.repository)
+        return 0, repository_status(
+            arguments.repository, arguments.disk_warning_bytes
+        )
     if arguments.operation == "retry":
         with acquire_writer_lock(arguments.repository, "retry"):
             return 0, enable_retry(arguments.repository, arguments.task_id)

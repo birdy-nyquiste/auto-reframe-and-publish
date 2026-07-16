@@ -39,3 +39,8 @@ This creates an auditable retry run, increments the task's retry generation, and
 ## Writer lock and status
 
 Every mutating operation acquires `<task-repository>/writer.lock`. Never delete or replace a lock merely because its process looks old. Report the lock owner and ask the operator to investigate it. `status` does not acquire the writer lock and must not modify repository files, so it remains safe while another run holds the lock.
+
+`status` always reports the current repository byte count. Pass
+`--disk-warning-bytes <positive-integer>` to evaluate that count against an
+operator-selected warning threshold without changing repository configuration or
+files.

@@ -85,7 +85,11 @@ def initialize_repository(repository: Path) -> dict[str, object]:
     return metadata
 
 
-def repository_status(repository: Path) -> dict[str, object]:
+def repository_status(
+    repository: Path, disk_warning_bytes: int | None = None
+) -> dict[str, object]:
+    if disk_warning_bytes is not None and disk_warning_bytes < 1:
+        raise WorkflowError("disk warning threshold must be at least 1 byte")
     metadata = read_json(repository / "repository.json")
     validate_record("repository", metadata)
     from .state import load_record
@@ -128,6 +132,13 @@ def repository_status(repository: Path) -> dict[str, object]:
             kind = str(blocker["kind"])
             blocker_counts[kind] = blocker_counts.get(kind, 0) + 1
 
+    try:
+        disk_usage_bytes = sum(
+            path.stat().st_size for path in repository.rglob("*") if path.is_file()
+        )
+    except OSError as error:
+        raise WorkflowError("Cannot calculate task repository disk usage") from error
+
     return {
         "status": "ok",
         "repository_version": metadata["repository_version"],
@@ -138,4 +149,12 @@ def repository_status(repository: Path) -> dict[str, object]:
         "blockers": blocker_counts,
         "run_statuses": run_status_counts,
         "writer_lock": describe_writer_lock(repository),
+        "disk_usage": {
+            "bytes": disk_usage_bytes,
+            "warning_threshold_bytes": disk_warning_bytes,
+            "warning": (
+                disk_warning_bytes is not None
+                and disk_usage_bytes >= disk_warning_bytes
+            ),
+        },
     }

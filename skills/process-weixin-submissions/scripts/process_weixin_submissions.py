@@ -7,8 +7,11 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from weixin_submission.schema_validation import SchemaValidationError
 from weixin_submission.storage import WorkflowError, repository_status
+from weixin_submission.writer_lock import acquire_writer_lock
 from weixin_submission.workflow import (
+    enable_retry,
     initialize_scripted_chat,
     run_scripted_chat,
 )
@@ -28,13 +31,21 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--repository", type=Path, required=True)
     run.add_argument("--scripted-chat", type=Path, required=True)
     run.add_argument("--fake-blog-directory", type=Path, required=True)
+    run.add_argument(
+        "--simulate-interruption-after",
+        choices=(
+            "task_created",
+            "raw_evidence_ready",
+            "structured_source_ready",
+            "rewrite_artifact_ready",
+            "draft_delivery_confirmed",
+        ),
+    )
 
     status = subparsers.add_parser("status", help="Read task repository status.")
     status.add_argument("--repository", type=Path, required=True)
 
-    retry = subparsers.add_parser(
-        "retry", help="Retry a task after durable retry support is implemented."
-    )
+    retry = subparsers.add_parser("retry", help="Re-enable a retry-exhausted task.")
     retry.add_argument("--repository", type=Path, required=True)
     retry.add_argument("--task-id", required=True)
     return parser
@@ -42,24 +53,23 @@ def create_parser() -> argparse.ArgumentParser:
 
 def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if arguments.operation == "initialize":
-        return 0, initialize_scripted_chat(
-            arguments.repository, arguments.scripted_chat
-        )
+        with acquire_writer_lock(arguments.repository, "initialize"):
+            return 0, initialize_scripted_chat(
+                arguments.repository, arguments.scripted_chat
+            )
     if arguments.operation == "run":
-        return 0, run_scripted_chat(
-            arguments.repository,
-            arguments.scripted_chat,
-            arguments.fake_blog_directory,
-        )
+        with acquire_writer_lock(arguments.repository, "run"):
+            return 0, run_scripted_chat(
+                arguments.repository,
+                arguments.scripted_chat,
+                arguments.fake_blog_directory,
+                arguments.simulate_interruption_after,
+            )
     if arguments.operation == "status":
         return 0, repository_status(arguments.repository)
     if arguments.operation == "retry":
-        return 3, {
-            "status": "not_available",
-            "operation": "retry",
-            "task_id": arguments.task_id,
-            "reason": "Durable retry is implemented by Ticket 03.",
-        }
+        with acquire_writer_lock(arguments.repository, "retry"):
+            return 0, enable_retry(arguments.repository, arguments.task_id)
     raise WorkflowError(f"Unsupported operation: {arguments.operation}")
 
 
@@ -68,7 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     try:
         exit_code, result = execute(arguments)
-    except WorkflowError as error:
+    except (WorkflowError, SchemaValidationError) as error:
         print(
             json.dumps({"status": "error", "error": str(error)}, ensure_ascii=False),
             file=sys.stderr,

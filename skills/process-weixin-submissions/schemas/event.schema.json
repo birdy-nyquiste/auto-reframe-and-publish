@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "sequence",
+    "task_id",
+    "run_id",
+    "occurred_at",
+    "type",
+    "milestone",
+    "operation",
+    "outcome",
+    "details"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "event_id": {"type": "string"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "task_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "occurred_at": {"type": "string"},
+    "type": {"type": "string", "enum": ["milestone_committed", "attempt_started", "attempt_succeeded", "attempt_failed", "retry_enabled", "blocker_changed"]},
+    "milestone": {
+      "type": ["string", "null"],
+      "enum": [
+        "task_created",
+        "raw_evidence_ready",
+        "structured_source_ready",
+        "rewrite_artifact_ready",
+        "draft_delivery_confirmed",
+        null
+      ]
+    },
+    "operation": {"type": ["string", "null"]},
+    "outcome": {"type": ["string", "null"]},
+    "details": {"type": "object", "additionalProperties": true}
+  },
+  "x-type-invariants": {
+    "milestone_committed": {"milestone": "string", "operation": "null", "outcome": "null"},
+    "attempt_started": {"milestone": "null", "operation": "string", "outcome": "started"},
+    "attempt_succeeded": {"milestone": "null", "operation": "string", "outcome": "succeeded"},
+    "attempt_failed": {"milestone": "null", "operation": "string", "outcome": "failed"},
+    "retry_enabled": {"milestone": "null", "operation": "string", "outcome": "enabled"},
+    "blocker_changed": {"milestone": "null", "operation": "null", "outcome": "null"}
+  }
+}

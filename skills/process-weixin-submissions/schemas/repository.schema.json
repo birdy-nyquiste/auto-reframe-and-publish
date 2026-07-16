@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "repository.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repository_version", "created_at", "validation_scope", "intake"],
+  "properties": {
+    "repository_version": {"type": "integer", "const": 1},
+    "created_at": {"type": "string"},
+    "validation_scope": {"type": "string"},
+    "intake": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adapter", "conversation", "last_marker_id"],
+          "properties": {
+            "adapter": {"type": "string", "const": "scripted_chat"},
+            "conversation": {"type": "string", "const": "file-transfer-assistant"},
+            "last_marker_id": {"type": "string"}
+          }
+        }
+      ]
+    }
+  }
+}

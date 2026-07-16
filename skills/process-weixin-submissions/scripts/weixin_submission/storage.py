@@ -7,9 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .schema_validation import validate_record
+
 
 REPOSITORY_VERSION = 1
-VALIDATION_SCOPE = "ticket_02_scripted_intake"
+VALIDATION_SCOPE = "ticket_03_durable_workflow"
 
 
 class WorkflowError(Exception):
@@ -54,6 +56,7 @@ def initialize_repository(repository: Path) -> dict[str, object]:
     metadata_path = repository / "repository.json"
     if metadata_path.exists():
         existing_metadata = read_json(metadata_path)
+        validate_record("repository", existing_metadata)
         if existing_metadata.get("repository_version") != REPOSITORY_VERSION:
             raise WorkflowError("Unsupported repository version")
         return existing_metadata
@@ -62,19 +65,59 @@ def initialize_repository(repository: Path) -> dict[str, object]:
         "repository_version": REPOSITORY_VERSION,
         "created_at": utc_now(),
         "validation_scope": VALIDATION_SCOPE,
+        "intake": None,
     }
+    validate_record("repository", metadata)
     write_json(metadata_path, metadata)
     return metadata
 
 
 def repository_status(repository: Path) -> dict[str, object]:
     metadata = read_json(repository / "repository.json")
-    run_count = sum(1 for path in (repository / "runs").iterdir() if path.is_dir())
-    task_count = sum(1 for path in (repository / "tasks").iterdir() if path.is_dir())
+    validate_record("repository", metadata)
+    from .state import load_record
+    from .writer_lock import describe_writer_lock
+
+    milestone_counts: dict[str, int] = {}
+    blocker_counts: dict[str, int] = {}
+    task_count = 0
+    for task_directory in sorted((repository / "tasks").iterdir()):
+        if not task_directory.is_dir():
+            continue
+        task_count += 1
+        task = load_record("task", task_directory / "task.json")
+        events_directory = task_directory / "events"
+        if events_directory.exists():
+            for event_path in sorted(events_directory.glob("*.json")):
+                event = load_record("event", event_path)
+                if event["task_id"] != task["task_id"]:
+                    raise WorkflowError(
+                        f"Event {event_path} does not belong to task {task['task_id']}"
+                    )
+        milestone = str(task["milestone"])
+        milestone_counts[milestone] = milestone_counts.get(milestone, 0) + 1
+        blocker = task["blocker"]
+        if isinstance(blocker, dict):
+            kind = str(blocker["kind"])
+            blocker_counts[kind] = blocker_counts.get(kind, 0) + 1
+
+    run_status_counts: dict[str, int] = {}
+    run_count = 0
+    for run_directory in sorted((repository / "runs").iterdir()):
+        if not run_directory.is_dir():
+            continue
+        run_count += 1
+        run = load_record("run", run_directory / "run.json")
+        status = str(run["status"])
+        run_status_counts[status] = run_status_counts.get(status, 0) + 1
     return {
         "status": "ok",
         "repository_version": metadata["repository_version"],
         "validation_scope": metadata["validation_scope"],
         "run_count": run_count,
         "task_count": task_count,
+        "milestones": milestone_counts,
+        "blockers": blocker_counts,
+        "run_statuses": run_status_counts,
+        "writer_lock": describe_writer_lock(repository),
     }

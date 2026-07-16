@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "created_in_run",
+    "created_at",
+    "updated_at",
+    "target_id",
+    "requirements",
+    "milestone",
+    "blocker",
+    "delivery_mode",
+    "external_draft",
+    "retry_generation"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "task_id": {"type": "string"},
+    "created_in_run": {"type": "string"},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "target_id": {"type": ["string", "null"]},
+    "requirements": {"type": ["string", "null"]},
+    "milestone": {
+      "type": "string",
+      "enum": [
+        "task_created",
+        "raw_evidence_ready",
+        "structured_source_ready",
+        "rewrite_artifact_ready",
+        "draft_delivery_confirmed"
+      ]
+    },
+    "blocker": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reason", "message"],
+          "properties": {
+            "kind": {"type": "string", "const": "needs_input"},
+            "reason": {"type": "string"},
+            "message": {"type": ["string", "null"]}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operation", "error_category", "error_code", "attempts_used", "retry_budget", "retry_generation"],
+          "properties": {
+            "kind": {"type": "string", "enum": ["retry_pending", "retry_exhausted"]},
+            "operation": {"type": "string"},
+            "error_category": {"type": "string"},
+            "error_code": {"type": "string"},
+            "attempts_used": {"type": "integer", "minimum": 0},
+            "retry_budget": {"type": "integer", "minimum": 1},
+            "retry_generation": {"type": "integer", "minimum": 0}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operation", "error_category", "error_code", "message"],
+          "properties": {
+            "kind": {"type": "string", "const": "permanent_failure"},
+            "operation": {"type": "string"},
+            "error_category": {"type": "string"},
+            "error_code": {"type": "string"},
+            "message": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "delivery_mode": {"type": ["string", "null"], "enum": ["fake", null]},
+    "external_draft": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["draft_id", "status", "preview_url", "adapter"],
+          "properties": {
+            "draft_id": {"type": "string"},
+            "status": {"type": "string", "const": "accepted"},
+            "preview_url": {"type": "string"},
+            "adapter": {"type": "string", "const": "fake"}
+          }
+        }
+      ]
+    },
+    "retry_generation": {"type": "integer", "minimum": 0}
+  },
+  "x-allowed-transitions": {
+    "task_created": ["raw_evidence_ready"],
+    "raw_evidence_ready": ["structured_source_ready"],
+    "structured_source_ready": ["rewrite_artifact_ready"],
+    "rewrite_artifact_ready": ["draft_delivery_confirmed"],
+    "draft_delivery_confirmed": []
+  },
+  "x-milestone-invariants": {
+    "task_created": {
+      "allowed_blockers": ["none", "needs_input"],
+      "external_draft": "null"
+    },
+    "raw_evidence_ready": {
+      "allowed_blockers": ["none"],
+      "external_draft": "null"
+    },
+    "structured_source_ready": {
+      "allowed_blockers": ["none"],
+      "external_draft": "null"
+    },
+    "rewrite_artifact_ready": {
+      "allowed_blockers": [
+        "none",
+        "retry_pending",
+        "retry_exhausted",
+        "permanent_failure"
+      ],
+      "external_draft": "null"
+    },
+    "draft_delivery_confirmed": {
+      "allowed_blockers": ["none"],
+      "external_draft": "object"
+    }
+  }
+}

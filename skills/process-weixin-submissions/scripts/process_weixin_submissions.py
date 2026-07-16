@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from weixin_submission.schema_validation import SchemaValidationError, milestones
+from weixin_submission.rewrite import ScriptedRewriteOutcome
 from weixin_submission.storage import WorkflowError, repository_status
 from weixin_submission.writer_lock import acquire_writer_lock
 from weixin_submission.workflow import (
@@ -33,8 +34,9 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--fake-blog-directory", type=Path, required=True)
     run.add_argument(
         "--scripted-rewrite-outcome",
-        choices=("success", "generation_failure", "validation_failure"),
-        default="success",
+        type=ScriptedRewriteOutcome,
+        choices=tuple(ScriptedRewriteOutcome),
+        default=ScriptedRewriteOutcome.SUCCESS,
         help="Validation-only scripted content-processing outcome.",
     )
     run.add_argument(

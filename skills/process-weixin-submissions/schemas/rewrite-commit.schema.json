@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rewrite-commit.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "commit_version",
+    "artifact_kind",
+    "manifest_path",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "commit_version": {"type": "integer", "const": 1},
+    "artifact_kind": {"type": "string", "const": "validated_rewrite_commit"},
+    "manifest_path": {"type": "string", "const": "rewrite/manifest.json"},
+    "manifest_sha256": {"type": "string"}
+  }
+}

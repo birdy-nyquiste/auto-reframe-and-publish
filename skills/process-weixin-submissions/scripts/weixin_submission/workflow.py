@@ -14,6 +14,7 @@ from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
 from .rewrite import (
     RewriteRejected,
+    ScriptedRewriteOutcome,
     generate_validated_rewrite,
     load_rewrite_artifact,
 )
@@ -89,7 +90,7 @@ def run_scripted_chat(
     chat_path: Path,
     fake_blog_directory: Path,
     simulate_interruption_after: str | None = None,
-    scripted_rewrite_outcome: str = "success",
+    scripted_rewrite_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
 ) -> dict[str, object]:
     metadata = load_record("repository", repository / "repository.json")
     intake = metadata.get("intake")
@@ -148,7 +149,7 @@ def _run_candidates(
     input_window: dict[str, object],
     fake_blog_directory: Path,
     simulate_interruption_after: str | None,
-    scripted_rewrite_outcome: str,
+    scripted_rewrite_outcome: ScriptedRewriteOutcome,
     run_id: str,
     created_task_ids: list[str],
     commit_input_cursor: Callable[[], None],
@@ -357,7 +358,7 @@ def _process_task(
     blog: FakeBlogAdapter,
     run_id: str,
     simulate_interruption_after: str | None,
-    scripted_rewrite_outcome: str,
+    scripted_rewrite_outcome: ScriptedRewriteOutcome,
 ) -> dict[str, Any] | None:
     task_id = task_record["task_id"]
 
@@ -452,8 +453,13 @@ def _process_task(
         _finish_attempt(task_directory, task_id, run_id, "generate_rewrite")
 
     if task_record["milestone"] == "rewrite_artifact_ready":
+        _start_attempt(
+            task_directory, task_id, run_id, "validate_rewrite_artifact"
+        )
         try:
-            artifact = load_rewrite_artifact(task_directory, submission.target_id)
+            artifact = load_rewrite_artifact(
+                task_directory, submission.target_id, submission.requirements
+            )
         except (SchemaValidationError, WorkflowError) as error:
             _record_operation_failure(
                 task_directory,
@@ -466,6 +472,9 @@ def _process_task(
                 retryable=False,
             )
             return None
+        _finish_attempt(
+            task_directory, task_id, run_id, "validate_rewrite_artifact"
+        )
         _start_attempt(task_directory, task_id, run_id, "deliver_draft")
         delivery_request = {
             "schema_version": SCHEMA_VERSION,

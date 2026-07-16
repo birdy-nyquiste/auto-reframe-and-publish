@@ -20,7 +20,7 @@
     "schema_version": {"type": "integer", "const": 2},
     "artifact_version": {"type": "integer", "const": 1},
     "artifact_kind": {"type": "string", "const": "validated_rewrite"},
-    "generator": {"type": "string", "const": "scripted_placeholder_v1"},
+    "generator": {"type": "string", "enum": ["scripted_agent_fixture_v1", "running_agent_v1"]},
     "generation_input_sha256": {"type": "string"},
     "title": {"type": "string"},
     "content": {

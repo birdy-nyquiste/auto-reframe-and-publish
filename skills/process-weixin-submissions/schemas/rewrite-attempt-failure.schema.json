@@ -13,7 +13,8 @@
     "error_code",
     "message",
     "input_sha256",
-    "candidate"
+    "candidate",
+    "candidate_manifest"
   ],
   "properties": {
     "schema_version": {"type": "integer", "const": 2},
@@ -38,6 +39,23 @@
           }
         }
       ]
+    },
+    "candidate_manifest": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/file_record"}
+      ]
+    }
+  },
+  "$defs": {
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string"},
+        "sha256": {"type": "string"}
+      }
     }
   }
 }

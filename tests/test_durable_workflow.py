@@ -140,6 +140,7 @@ class DurableWorkflowTest(unittest.TestCase):
                 "capture_raw_evidence",
                 "build_structured_source",
                 "generate_rewrite",
+                "validate_rewrite_artifact",
                 "deliver_draft",
             ],
         )

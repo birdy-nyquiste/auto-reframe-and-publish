@@ -63,7 +63,10 @@ class AgentSourceImage:
 class RewriteGenerator(Protocol):
     """Content-only handoff implemented by a running Agent or a test fixture."""
 
-    generator_id: str
+    @property
+    def generator_id(self) -> str:
+        """Return the stable generator identity recorded in the manifest."""
+        ...
 
     def generate(
         self,

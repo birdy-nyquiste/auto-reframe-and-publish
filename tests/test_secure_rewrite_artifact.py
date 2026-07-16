@@ -246,10 +246,13 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         draft = json.loads(
             next((self.fake_blog / "drafts").glob("*.json")).read_text("utf-8")
         )
-        self.assertEqual(draft["request"]["target_id"], "trusted-author")
-        self.assertEqual(draft["response"]["status"], "accepted")
         self.assertEqual(
-            sorted(path.name for path in self.fake_blog.iterdir()), ["drafts"]
+            draft["request"]["target"]["source_id"], "trusted-author"
+        )
+        self.assertEqual(draft["response"]["state"], "draft_accepted")
+        self.assertEqual(
+            sorted(path.name for path in self.fake_blog.iterdir()),
+            ["drafts", "idempotency", "uploads"],
         )
         self.assertFalse(command_marker.exists())
         self.assertNotIn(

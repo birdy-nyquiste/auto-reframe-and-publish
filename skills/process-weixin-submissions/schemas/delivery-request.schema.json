@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delivery-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "operation",
+    "idempotency_key",
+    "target",
+    "title",
+    "body_markdown",
+    "images",
+    "adapter"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "contract_version": {"type": "integer", "const": 1},
+    "operation": {"type": "string", "const": "create_draft"},
+    "idempotency_key": {"type": "string"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "external_id"],
+      "properties": {
+        "source_id": {"type": "string"},
+        "external_id": {"type": "string"}
+      }
+    },
+    "title": {"type": "string"},
+    "body_markdown": {"type": "string"},
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["occurrence", "asset_id", "sha256"],
+        "properties": {
+          "occurrence": {"type": "integer", "minimum": 1},
+          "asset_id": {"type": "string"},
+          "sha256": {"type": "string"}
+        }
+      }
+    },
+    "adapter": {"type": "string", "const": "fake"}
+  }
+}

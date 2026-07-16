@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delivery-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["draft_id", "status", "preview_url", "adapter"],
+  "properties": {
+    "draft_id": {"type": "string"},
+    "status": {"type": "string", "const": "accepted"},
+    "preview_url": {"type": "string"},
+    "adapter": {"type": "string", "const": "fake"}
+  }
+}

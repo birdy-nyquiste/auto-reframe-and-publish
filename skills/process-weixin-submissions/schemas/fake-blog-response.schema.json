@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fake-blog-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["draft_ref", "state", "preview", "adapter"],
+  "properties": {
+    "draft_ref": {"type": "string"},
+    "state": {"type": "string", "const": "draft_accepted"},
+    "preview": {"type": "string"},
+    "adapter": {"type": "string", "const": "fake"}
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delivery-attempt-error.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "attempt_version",
+    "task_id",
+    "run_id",
+    "phase",
+    "error_category",
+    "error_code",
+    "message",
+    "response_received"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "attempt_version": {"type": "integer", "const": 1},
+    "task_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "phase": {"type": "string", "enum": ["create_draft", "validate_response"]},
+    "error_category": {"type": "string"},
+    "error_code": {"type": "string"},
+    "message": {"type": "string"},
+    "response_received": {"type": "boolean"}
+  }
+}

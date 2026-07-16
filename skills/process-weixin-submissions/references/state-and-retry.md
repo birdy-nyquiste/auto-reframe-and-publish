@@ -20,6 +20,8 @@ The run then reconciles task and raw-intake projections from committed events an
 
 Rewrite generation or validation failures remain at `structured_source_ready` with a typed permanent blocker and immutable evidence under `rewrite/attempts/<run_id>/`. A committed rewrite is validated as its own recorded attempt before delivery; its independent commit anchor and all transitive inputs are hash-checked. Integrity failure remains at `rewrite_artifact_ready` and cannot reach the Blog adapter.
 
+Delivery transport failures and unknown acceptance outcomes remain at `rewrite_artifact_ready` with the centralized retry budget. Every attempt keeps its derived request and either raw response or typed error evidence. The task reaches `draft_delivery_confirmed` only after the normalized accepted response and external draft ID are durable. Explicit rejection, invalid response, and a hand-edited generated request are permanent failures.
+
 `--simulate-interruption-after <milestone>` is a validation-only scripted-adapter option. Do not use it for an operator's production task.
 
 ## Retry

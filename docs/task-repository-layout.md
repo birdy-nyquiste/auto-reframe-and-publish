@@ -48,7 +48,13 @@ weixin-blog-publish-data/
 │   │   │           └── failure.json     # 生成或验证失败时存在
 │   │   └── delivery/
 │   │       ├── request.json
-│   │       └── response.json
+│   │       ├── response-raw.json
+│   │       ├── response.json
+│   │       └── attempts/
+│   │           └── <run_id>/
+│   │               ├── request.json
+│   │               ├── response-raw.json
+│   │               └── error.json
 │   └── task_01JXYZ.../
 │       └── ...
 ```
@@ -74,7 +80,8 @@ weixin-blog-publish-data/
 - A validated rewrite artifact is immutable after it is committed; `rewrite/commit.json` independently anchors the exact manifest bytes.
 - Rewrite attempts explicitly separate trusted task controls from hash-addressed untrusted sources. The Agent output pair remains under `rewrite/attempts/<run_id>/`; deterministic validation commits the exact pair. Failed generations or validations never occupy the committed artifact paths.
 - The committed rewrite manifest records content, source, image, policy, prompt and Schema hashes. Before delivery, validation checks its commit anchor and every transitive input as a complete attempt. It contains no Blog request or response state.
-- `delivery/request.json` is regenerated from the rewrite artifact and the real Blog adapter.
+- `delivery/request.json` is a Schema-validated, read-only projection regenerated from the rewrite artifact and adapter target mapping. A conflicting existing file is rejected rather than overwritten.
+- Delivery attempts retain the exact derived request and either untrusted raw response or typed error evidence. Only a validated accepted response is copied to canonical `response-raw.json`, normalized into `response.json`, and committed into task state.
 - `report.md` is regenerated from the run record and event history.
 - Atomic writes use same-directory temporary files that disappear after replacement.
 - `writer.lock` applies to every mutable operation. Status reports it but never deletes or replaces it, even when it appears stale.

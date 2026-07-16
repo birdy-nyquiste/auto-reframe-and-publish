@@ -9,6 +9,7 @@ from .capture import (
     load_structured_source,
     rebuild_structured_source,
 )
+from .delivery import deliver_canonical_draft
 from .fake_blog import BlogAdapterError, FakeBlogAdapter
 from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
@@ -477,24 +478,27 @@ def _process_task(
             task_directory, task_id, run_id, "validate_rewrite_artifact"
         )
         _start_attempt(task_directory, task_id, run_id, "deliver_draft")
-        delivery_request = {
-            "schema_version": SCHEMA_VERSION,
-            "idempotency_key": task_id,
-            "target_id": artifact.target_id,
-            "title": artifact.title,
-            "body_markdown": artifact.content,
-            "images": list(artifact.images),
-            "adapter": "fake",
-        }
-        write_json(task_directory / "delivery" / "request.json", delivery_request)
         try:
-            delivery_response = blog.create_draft(delivery_request)
+            _raw_response, delivery_response = deliver_canonical_draft(
+                task_directory, task_id, artifact, blog, run_id
+            )
         except BlogAdapterError as error:
             _record_delivery_failure(
                 task_directory, task_record, run_id, error
             )
             return None
-        write_json(task_directory / "delivery" / "response.json", delivery_response)
+        except (SchemaValidationError, WorkflowError) as error:
+            _record_operation_failure(
+                task_directory,
+                task_record,
+                run_id,
+                operation="deliver_draft",
+                error_category="delivery_integrity",
+                error_code="delivery_request_invalid",
+                message=str(error),
+                retryable=False,
+            )
+            return None
         task_record["blocker"] = None
         task_record["external_draft"] = delivery_response
         commit_task_milestone(

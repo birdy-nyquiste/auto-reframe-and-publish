@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .scripted_clipboard import ScriptedClipboard
 from .storage import WorkflowError, new_id, read_json, utc_now, write_json
 
 
@@ -30,29 +31,41 @@ def _read_chat(path: Path) -> dict[str, Any]:
     return chat
 
 
-def _send_marker(path: Path) -> tuple[str, dict[str, Any]]:
+def _send_marker(
+    path: Path, clipboard: ScriptedClipboard
+) -> tuple[str, dict[str, Any]]:
     chat = _read_chat(path)
     marker_id = new_id("marker")
+    marker_text = f"#批次 {marker_id}"
+    clipboard.paste_text(marker_text)
+    pasted_text = clipboard.read_for_paste()
+    if pasted_text != marker_text:
+        raise WorkflowError("Scripted clipboard changed the batch marker text")
     marker = {
         "message_id": marker_id,
         "kind": "batch_marker",
         "marker_id": marker_id,
-        "text": f"#批次 {marker_id}",
+        "text": pasted_text,
         "sent_at": utc_now(),
     }
     chat["messages"].append(marker)
     chat["messages"].extend(chat.get("arrive_after_next_marker", []))
     chat["arrive_after_next_marker"] = []
     write_json(path, chat)
+    clipboard.clear()
     return marker_id, chat
 
 
-def establish_baseline(path: Path) -> tuple[str, str]:
-    marker_id, chat = _send_marker(path)
+def establish_baseline(
+    path: Path, clipboard: ScriptedClipboard
+) -> tuple[str, str]:
+    marker_id, chat = _send_marker(path, clipboard)
     return marker_id, str(chat["conversation"])
 
 
-def capture_next_window(path: Path, previous_marker_id: str) -> InputWindow:
+def capture_next_window(
+    path: Path, previous_marker_id: str, clipboard: ScriptedClipboard
+) -> InputWindow:
     existing_chat = _read_chat(path)
     existing_messages = existing_chat["messages"]
     previous_positions = [
@@ -81,7 +94,7 @@ def capture_next_window(path: Path, previous_marker_id: str) -> InputWindow:
             messages=tuple(existing_messages[previous_index + 1 : current_index]),
         )
 
-    current_marker_id, chat = _send_marker(path)
+    current_marker_id, chat = _send_marker(path, clipboard)
     messages = chat["messages"]
     marker_positions = {
         message.get("marker_id"): index

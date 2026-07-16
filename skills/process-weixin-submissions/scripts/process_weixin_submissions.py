@@ -27,10 +27,12 @@ def create_parser() -> argparse.ArgumentParser:
     initialize = subparsers.add_parser("initialize", help="Initialize a task repository.")
     initialize.add_argument("--repository", type=Path, required=True)
     initialize.add_argument("--scripted-chat", type=Path, required=True)
+    initialize.add_argument("--scripted-clipboard", type=Path)
 
     run = subparsers.add_parser("run", help="Run the next scripted chat window.")
     run.add_argument("--repository", type=Path, required=True)
     run.add_argument("--scripted-chat", type=Path, required=True)
+    run.add_argument("--scripted-clipboard", type=Path)
     run.add_argument("--fake-blog-directory", type=Path, required=True)
     run.add_argument(
         "--scripted-rewrite-outcome",
@@ -57,7 +59,9 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if arguments.operation == "initialize":
         with acquire_writer_lock(arguments.repository, "initialize"):
             return 0, initialize_scripted_chat(
-                arguments.repository, arguments.scripted_chat
+                arguments.repository,
+                arguments.scripted_chat,
+                arguments.scripted_clipboard,
             )
     if arguments.operation == "run":
         with acquire_writer_lock(arguments.repository, "run"):
@@ -67,6 +71,7 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 arguments.fake_blog_directory,
                 arguments.simulate_interruption_after,
                 arguments.scripted_rewrite_outcome,
+                arguments.scripted_clipboard,
             )
     if arguments.operation == "status":
         return 0, repository_status(arguments.repository)

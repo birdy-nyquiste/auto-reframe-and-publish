@@ -11,7 +11,7 @@ from .schema_validation import validate_record
 
 
 REPOSITORY_VERSION = 2
-VALIDATION_SCOPE = "ticket_06_idempotent_draft_delivery"
+VALIDATION_SCOPE = "core_validated"
 
 
 class WorkflowError(Exception):

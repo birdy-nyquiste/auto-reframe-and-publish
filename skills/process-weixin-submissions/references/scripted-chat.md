@@ -11,6 +11,22 @@ Use a mutable JSON fixture to emulate the File Transfer Assistant conversation d
 }
 ```
 
+Marker sending also uses a file-backed clipboard fixture:
+
+```json
+{
+  "schema_version": 1,
+  "owner_id": null,
+  "text": ""
+}
+```
+
+The adapter acquires exclusive ownership, discards any previous `text`, pastes the
+marker through this clipboard, and clears the value on both normal and exceptional
+exit. It never restores or records the previous clipboard contents. When
+`--scripted-clipboard` is omitted, the CLI uses `<scripted-chat-stem>.clipboard.json`
+beside the chat fixture.
+
 `initialize` appends a baseline marker to `messages` and ignores all earlier messages. `run` appends one new marker, processes only messages between the previous and current markers, then moves `arrive_after_next_marker` after the new marker to emulate submissions arriving during processing.
 
 Initialize from the Skill directory:
@@ -18,7 +34,8 @@ Initialize from the Skill directory:
 ```text
 python scripts/process_weixin_submissions.py initialize \
   --repository <absolute-task-repository-path> \
-  --scripted-chat <absolute-scripted-chat-path>
+  --scripted-chat <absolute-scripted-chat-path> \
+  --scripted-clipboard <absolute-scripted-clipboard-path>
 ```
 
 Run one input window:
@@ -27,6 +44,7 @@ Run one input window:
 python scripts/process_weixin_submissions.py run \
   --repository <absolute-task-repository-path> \
   --scripted-chat <absolute-scripted-chat-path> \
+  --scripted-clipboard <absolute-scripted-clipboard-path> \
   --fake-blog-directory <absolute-fake-blog-path>
 ```
 

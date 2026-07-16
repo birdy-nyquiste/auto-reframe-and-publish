@@ -22,6 +22,7 @@ from .rewrite import (
 )
 from .schema_validation import SchemaValidationError
 from .scripted_chat import capture_next_window, establish_baseline
+from .scripted_clipboard import ScriptedClipboard
 from .state import (
     append_task_event,
     commit_task_milestone,
@@ -62,7 +63,11 @@ class SimulatedInterruption(WorkflowError):
     """Validation-only interruption injected after a committed milestone."""
 
 
-def initialize_scripted_chat(repository: Path, chat_path: Path) -> dict[str, object]:
+def initialize_scripted_chat(
+    repository: Path,
+    chat_path: Path,
+    clipboard_path: Path | None = None,
+) -> dict[str, object]:
     metadata = initialize_repository(repository)
     existing_intake = metadata.get("intake")
     if isinstance(existing_intake, dict) and isinstance(
@@ -71,7 +76,10 @@ def initialize_scripted_chat(repository: Path, chat_path: Path) -> dict[str, obj
         raise WorkflowError(
             "Scripted intake is already initialized; run the next window instead"
         )
-    marker_id, conversation = establish_baseline(chat_path)
+    with ScriptedClipboard(
+        clipboard_path or _default_clipboard_path(chat_path), "initialize"
+    ) as clipboard:
+        marker_id, conversation = establish_baseline(chat_path, clipboard)
     metadata["intake"] = {
         "adapter": "scripted_chat",
         "conversation": conversation,
@@ -93,6 +101,28 @@ def run_scripted_chat(
     fake_blog_directory: Path,
     simulate_interruption_after: str | None = None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
+    clipboard_path: Path | None = None,
+) -> dict[str, object]:
+    with ScriptedClipboard(
+        clipboard_path or _default_clipboard_path(chat_path), "run"
+    ) as clipboard:
+        return _run_scripted_chat_owned(
+            repository,
+            chat_path,
+            fake_blog_directory,
+            clipboard,
+            simulate_interruption_after,
+            scripted_rewrite_outcome,
+        )
+
+
+def _run_scripted_chat_owned(
+    repository: Path,
+    chat_path: Path,
+    fake_blog_directory: Path,
+    clipboard: ScriptedClipboard,
+    simulate_interruption_after: str | None,
+    scripted_rewrite_outcome: ScriptedRewriteOutcome,
 ) -> dict[str, object]:
     metadata = load_record("repository", repository / "repository.json")
     intake = metadata.get("intake")
@@ -100,7 +130,9 @@ def run_scripted_chat(
         raise WorkflowError("Initialize the scripted chat before running intake")
     pending_window = metadata.get("pending_window")
     if pending_window is None:
-        window = capture_next_window(chat_path, intake["last_marker_id"])
+        window = capture_next_window(
+            chat_path, intake["last_marker_id"], clipboard
+        )
         candidates = parse_input_window(window.messages, window.current_marker_id)
         pending_window = {
             "adapter": "scripted_chat",
@@ -313,10 +345,10 @@ def _load_executable_tasks(
     repository: Path,
 ) -> list[tuple[str, dict[str, Any], Submission]]:
     executable: list[tuple[str, dict[str, Any], Submission]] = []
-    task_directories = sorted(
-        (path for path in (repository / "tasks").iterdir() if path.is_dir()),
-        key=lambda path: path.name,
-    )
+    task_directories = [
+        path for path in (repository / "tasks").iterdir() if path.is_dir()
+    ]
+    creation_order = _load_task_creation_order(repository)
     for task_directory in task_directories:
         task_record = load_record("task", task_directory / "task.json")
         if task_record["milestone"] == "draft_delivery_confirmed":
@@ -331,7 +363,30 @@ def _load_executable_tasks(
             str(intake.get("window_id", task_record["created_in_run"])),
         )
         executable.append((task_directory.name, task_record, submission))
+    executable.sort(
+        key=lambda item: (
+            str(item[1]["created_at"]),
+            creation_order.get(item[0], (str(item[1]["created_in_run"]), 0)),
+            item[0],
+        )
+    )
     return executable
+
+
+def _load_task_creation_order(repository: Path) -> dict[str, tuple[str, int]]:
+    creation_order: dict[str, tuple[str, int]] = {}
+    for run_directory in (repository / "runs").iterdir():
+        if not run_directory.is_dir():
+            continue
+        run_record = load_record("run", run_directory / "run.json")
+        run_id = str(run_record["run_id"])
+        for position, task_id in enumerate(run_record["created_task_ids"]):
+            creation_order[str(task_id)] = (run_id, position)
+    return creation_order
+
+
+def _default_clipboard_path(chat_path: Path) -> Path:
+    return chat_path.with_name(f"{chat_path.stem}.clipboard.json")
 
 
 def _result_from_task(task_record: dict[str, Any]) -> dict[str, object]:

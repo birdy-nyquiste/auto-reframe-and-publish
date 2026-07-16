@@ -23,13 +23,17 @@ weixin-blog-publish-data/
 │   │   │   └── 000002-event_....json
 │   │   ├── raw/
 │   │   │   ├── intake.json
-│   │   │   └── capture/
+│   │   │   ├── capture/
 │   │   │       ├── manifest.json
 │   │   │       ├── clipboard.txt
 │   │   │       ├── assets/
 │   │   │       │   └── <sha256>        # 原图、裁剪图或 GIF 静态帧
 │   │   │       └── viewports/
 │   │   │           └── <sha256>        # 截图降级时的未修改视口证据
+│   │   │   └── capture-attempts/
+│   │   │       └── <run_id>/           # 未通过完整性/适用性门槛的不可变尝试
+│   │   │           ├── manifest.json
+│   │   │           └── ...
 │   │   ├── sources/
 │   │   │   └── article.json
 │   │   ├── rewrite/
@@ -56,6 +60,7 @@ weixin-blog-publish-data/
 ## Storage boundaries
 
 - `raw/` is immutable evidence after its milestone is committed.
+- An incomplete or unusable capture is retained under `raw/capture-attempts/<run_id>/`; it never occupies or mutates the canonical `raw/capture/` paths.
 - `raw/capture/clipboard.txt` is copied text, never OCR reconstruction. A missing source URL is allowed when the body, static images and article-end evidence are complete.
 - Screenshot fallback preserves both the cropped static asset and the unmodified viewport screenshot; GIF stores one static frame and a degradation warning. Video and audio are neither downloaded nor transcribed.
 - `sources/article.json` is rebuildable from `raw/capture/manifest.json` and hash-verified evidence.

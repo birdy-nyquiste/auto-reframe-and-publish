@@ -128,7 +128,7 @@
       "external_draft": "null"
     },
     "raw_evidence_ready": {
-      "allowed_blockers": ["none"],
+      "allowed_blockers": ["none", "permanent_failure"],
       "external_draft": "null"
     },
     "structured_source_ready": {

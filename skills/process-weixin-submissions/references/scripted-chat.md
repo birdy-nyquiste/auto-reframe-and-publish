@@ -49,6 +49,7 @@ Use a text message followed immediately by one Official Account article:
       "clipboard_text": "通过复制粘贴取得的文章正文",
       "source_url": "https://example.com/article",
       "article_end_observed": true,
+      "all_static_images_captured": true,
       "media": []
     }
   }

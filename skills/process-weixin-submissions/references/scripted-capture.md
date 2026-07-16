@@ -11,11 +11,12 @@ Provide copied article text, whether the article end was observed, and an option
   "clipboard_text": "通过文章界面复制并粘贴取得的完整正文",
   "source_url": null,
   "article_end_observed": true,
+  "all_static_images_captured": true,
   "media": []
 }
 ```
 
-The body must be non-empty and always has capture method `copy_paste`; OCR text is not accepted. The source URL may be `null`. A false `article_end_observed` value keeps the task at `task_created` with a retryable `article_end_not_observed` blocker.
+The body must be non-empty and always has capture method `copy_paste`; OCR text is not accepted. The source URL may be `null`. `all_static_images_captured` is an explicit adapter observation, not an inference from the fixture's media list. A false completeness observation keeps the task at `task_created` with a retryable typed blocker.
 
 ## Static media fixtures
 
@@ -77,6 +78,7 @@ Neither is downloaded or transcribed. The task continues with explicit warnings 
 ## Evidence guarantees
 
 - `raw/capture/manifest.json`, copied text, static assets and viewport screenshots are immutable once written.
+- Incomplete or source-limited evidence is kept in an immutable `raw/capture-attempts/<run_id>/` directory so a later adapter attempt can create canonical evidence without overwriting history.
 - Asset paths are SHA-256 content addresses; MIME is manifest metadata rather than a filename extension.
 - Rebuilding `sources/article.json` verifies copied-text, static-asset and viewport hashes, occurrence order, and capture-method metadata.
 - Do not hand-edit evidence or the rebuilt source. Correct the fixture or adapter and create a new task.

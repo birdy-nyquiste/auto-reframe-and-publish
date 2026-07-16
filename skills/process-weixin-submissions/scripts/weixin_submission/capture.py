@@ -28,18 +28,27 @@ class CaptureRejected(WorkflowError):
 
 
 def capture_raw_evidence(
-    task_directory: Path, submission: Submission
+    task_directory: Path, submission: Submission, attempt_id: str
 ) -> dict[str, Any]:
+    rejection = _capture_rejection(submission)
+    capture_root = (
+        "raw/capture"
+        if rejection is None
+        else f"raw/capture-attempts/{attempt_id}"
+    )
     body_bytes = submission.capture.clipboard_text.encode("utf-8")
-    body_path = "raw/capture/clipboard.txt"
-    image_occurrences, embedded_media, warnings = _capture_media(
-        task_directory, submission.capture.media
+    body_path = f"{capture_root}/clipboard.txt"
+    image_occurrences, embedded_media, warnings, evidence_files = _capture_media(
+        capture_root, submission.capture.media
+    )
+    complete = (
+        submission.capture.article_end_observed
+        and submission.capture.all_static_images_captured
     )
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "capture_version": CAPTURE_VERSION,
         "adapter": "scripted_capture",
-        "header_text": submission.header_text,
         "title": submission.title,
         "source_url": submission.capture.source_url,
         "body": {
@@ -58,55 +67,82 @@ def capture_raw_evidence(
         "completeness": {
             "body_text": True,
             "article_end_observed": submission.capture.article_end_observed,
-            "all_static_images_captured": True,
-            "complete": submission.capture.article_end_observed,
+            "all_static_images_captured": (
+                submission.capture.all_static_images_captured
+            ),
+            "complete": complete,
         },
     }
     validate_record("capture-manifest", manifest)
+    for evidence_path, evidence_bytes in evidence_files:
+        write_immutable_bytes(task_directory / evidence_path, evidence_bytes)
     write_immutable_bytes(task_directory / body_path, body_bytes)
     manifest_bytes = (
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
     ).encode("utf-8")
     write_immutable_bytes(
-        task_directory / "raw" / "capture" / "manifest.json", manifest_bytes
+        task_directory / capture_root / "manifest.json", manifest_bytes
     )
+    if rejection is not None:
+        raise rejection
+    return manifest
+
+
+def _capture_rejection(submission: Submission) -> CaptureRejected | None:
     if not submission.capture.article_end_observed:
-        raise CaptureRejected(
+        return CaptureRejected(
             "article_end_not_observed",
             "Article end was not observed, so raw capture is incomplete",
             category="capture_incomplete",
             retryable=True,
         )
+    if not submission.capture.all_static_images_captured:
+        return CaptureRejected(
+            "static_images_incomplete",
+            "Not all static image occurrences were captured",
+            category="capture_incomplete",
+            retryable=True,
+        )
+    has_embedded_media = any(
+        item.get("kind") in ("video", "audio")
+        for item in submission.capture.media
+    )
     meaningful_characters = sum(
         not character.isspace() for character in submission.capture.clipboard_text
     )
     if (
-        embedded_media
+        has_embedded_media
         and meaningful_characters < MIN_TEXT_CHARACTERS_WITH_EMBEDDED_MEDIA
     ):
-        raise CaptureRejected(
+        return CaptureRejected(
             "media_only_source",
             "Article depends on uncaptured audio or video and has insufficient text",
             category="source_limitation",
             retryable=False,
         )
-    return manifest
+    return None
 
 
 def rebuild_structured_source(task_directory: Path) -> StructuredSource:
     manifest = load_record(
         "capture-manifest", task_directory / "raw" / "capture" / "manifest.json"
     )
-    completeness = manifest["completeness"]
-    if not isinstance(completeness, dict) or completeness.get("complete") is not True:
-        raise WorkflowError("Raw capture evidence is incomplete")
+    _verify_manifest_completeness(manifest)
     body_record = manifest["body"]
     if not isinstance(body_record, dict):
         raise WorkflowError("Capture manifest body is invalid")
-    body_path = task_directory / require_string(body_record.get("path"), "body path")
-    body_bytes = body_path.read_bytes()
+    body_relative_path = require_string(body_record.get("path"), "body path")
+    if body_relative_path != "raw/capture/clipboard.txt":
+        raise WorkflowError("Capture manifest body path is not canonical")
+    body_path = task_directory / body_relative_path
+    body_bytes = _read_evidence(body_path)
     _require_hash(body_bytes, body_record.get("sha256"), body_path)
-    body = body_bytes.decode("utf-8")
+    try:
+        body = body_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise WorkflowError("Captured clipboard text is not UTF-8") from error
+    if body_record.get("character_count") != len(body):
+        raise WorkflowError("Captured clipboard character count is inconsistent")
     source_record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "title": manifest["title"],
@@ -160,12 +196,43 @@ def _require_hash(value: bytes, expected: object, path: Path) -> None:
         raise WorkflowError(f"Capture evidence hash mismatch: {path}")
 
 
+def _read_evidence(path: Path) -> bytes:
+    try:
+        return path.read_bytes()
+    except OSError as error:
+        raise WorkflowError(f"Cannot read capture evidence: {path}") from error
+
+
+def _verify_manifest_completeness(manifest: dict[str, Any]) -> None:
+    completeness = manifest.get("completeness")
+    article_end = manifest.get("article_end")
+    if not isinstance(completeness, dict) or not isinstance(article_end, dict):
+        raise WorkflowError("Capture completeness metadata is invalid")
+    expected_complete = (
+        completeness.get("body_text") is True
+        and completeness.get("all_static_images_captured") is True
+        and article_end.get("observed") is True
+    )
+    if completeness.get("article_end_observed") != article_end.get("observed"):
+        raise WorkflowError("Capture article-end metadata is inconsistent")
+    if completeness.get("complete") != expected_complete:
+        raise WorkflowError("Capture completeness metadata is inconsistent")
+    if not expected_complete:
+        raise WorkflowError("Raw capture evidence is incomplete")
+
+
 def _capture_media(
-    task_directory: Path, media: tuple[dict[str, Any], ...]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    capture_root: str, media: tuple[dict[str, Any], ...]
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[str],
+    list[tuple[str, bytes]],
+]:
     occurrences: list[dict[str, Any]] = []
     embedded_media: list[dict[str, Any]] = []
     warnings: list[str] = []
+    evidence_files: list[tuple[str, bytes]] = []
     for article_position, item in enumerate(media, start=1):
         kind = item.get("kind")
         if kind in ("video", "audio"):
@@ -211,8 +278,8 @@ def _capture_media(
             raise WorkflowError(f"Unsupported scripted media kind: {kind}")
         _require_static_mime(mime_type)
         digest = _sha256(image_bytes)
-        asset_path = f"raw/capture/assets/{digest}"
-        write_immutable_bytes(task_directory / asset_path, image_bytes)
+        asset_path = f"{capture_root}/assets/{digest}"
+        evidence_files.append((asset_path, image_bytes))
         if capture_method in ("original_bytes", "static_frame"):
             pass
         elif capture_method == "viewport_crop":
@@ -224,8 +291,8 @@ def _capture_media(
             )
             _require_static_mime(viewport_mime_type)
             viewport_digest = _sha256(viewport_bytes)
-            viewport_path = f"raw/capture/viewports/{viewport_digest}"
-            write_immutable_bytes(task_directory / viewport_path, viewport_bytes)
+            viewport_path = f"{capture_root}/viewports/{viewport_digest}"
+            evidence_files.append((viewport_path, viewport_bytes))
             degradation = "screenshot_crop"
             viewport_evidence = {
                 "path": viewport_path,
@@ -247,7 +314,7 @@ def _capture_media(
                 "viewport_evidence": viewport_evidence,
             }
         )
-    return occurrences, embedded_media, warnings
+    return occurrences, embedded_media, warnings, evidence_files
 
 
 def _structured_images(
@@ -263,8 +330,13 @@ def _structured_images(
         if occurrence.get("position") != expected_position:
             raise WorkflowError("Capture image occurrence order is not contiguous")
         asset_path = require_string(occurrence.get("asset_path"), "image asset path")
+        asset_sha256 = require_string(
+            occurrence.get("asset_sha256"), "image asset sha256"
+        )
+        if asset_path != f"raw/capture/assets/{asset_sha256}":
+            raise WorkflowError("Capture image asset path is not canonical")
         asset = task_directory / asset_path
-        _require_hash(asset.read_bytes(), occurrence.get("asset_sha256"), asset)
+        _require_hash(_read_evidence(asset), asset_sha256, asset)
         _verify_capture_method_evidence(task_directory, occurrence)
         result.append(
             {
@@ -294,8 +366,13 @@ def _verify_capture_method_evidence(
         if not isinstance(viewport, dict):
             raise WorkflowError("Viewport capture is missing original evidence")
         viewport_path = require_string(viewport.get("path"), "viewport evidence path")
+        viewport_sha256 = require_string(
+            viewport.get("sha256"), "viewport evidence sha256"
+        )
+        if viewport_path != f"raw/capture/viewports/{viewport_sha256}":
+            raise WorkflowError("Viewport evidence path is not canonical")
         evidence = task_directory / viewport_path
-        _require_hash(evidence.read_bytes(), viewport.get("sha256"), evidence)
+        _require_hash(_read_evidence(evidence), viewport_sha256, evidence)
         return
     if viewport is not None:
         raise WorkflowError("Non-viewport capture must not have viewport evidence")

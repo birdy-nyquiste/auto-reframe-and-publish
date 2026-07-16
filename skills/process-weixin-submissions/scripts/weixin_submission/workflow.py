@@ -12,6 +12,7 @@ from .capture import (
 from .fake_blog import BlogAdapterError, FakeBlogAdapter
 from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
+from .schema_validation import SchemaValidationError
 from .scripted_chat import capture_next_window, establish_baseline
 from .state import (
     append_task_event,
@@ -353,9 +354,21 @@ def _process_task(
     if task_record["milestone"] == "task_created":
         _start_attempt(task_directory, task_id, run_id, "capture_raw_evidence")
         try:
-            capture_raw_evidence(task_directory, submission)
+            capture_raw_evidence(task_directory, submission, run_id)
         except CaptureRejected as error:
             _record_capture_failure(task_directory, task_record, run_id, error)
+            return None
+        except (SchemaValidationError, WorkflowError) as error:
+            _record_operation_failure(
+                task_directory,
+                task_record,
+                run_id,
+                operation="capture_raw_evidence",
+                error_category="invalid_capture",
+                error_code="invalid_capture_evidence",
+                message=str(error),
+                retryable=False,
+            )
             return None
         commit_task_milestone(
             task_directory, task_record, "raw_evidence_ready", run_id
@@ -365,7 +378,20 @@ def _process_task(
 
     if task_record["milestone"] == "raw_evidence_ready":
         _start_attempt(task_directory, task_id, run_id, "build_structured_source")
-        rebuild_structured_source(task_directory)
+        try:
+            rebuild_structured_source(task_directory)
+        except (SchemaValidationError, WorkflowError) as error:
+            _record_operation_failure(
+                task_directory,
+                task_record,
+                run_id,
+                operation="build_structured_source",
+                error_category="evidence_integrity",
+                error_code="evidence_integrity_failed",
+                message=str(error),
+                retryable=False,
+            )
+            return None
         commit_task_milestone(
             task_directory, task_record, "structured_source_ready", run_id
         )
@@ -436,50 +462,15 @@ def _record_delivery_failure(
     run_id: str,
     error: BlogAdapterError,
 ) -> None:
-    budget = retry_budget("deliver_draft", error.category)
-    previous_blocker = task_record["blocker"]
-    if (
-        isinstance(previous_blocker, dict)
-        and previous_blocker.get("kind") == "retry_pending"
-        and previous_blocker.get("retry_generation") == task_record["retry_generation"]
-    ):
-        attempts_used = int(previous_blocker["attempts_used"]) + 1
-    else:
-        attempts_used = 1
-
-    if budget is None:
-        blocker: dict[str, Any] = {
-            "kind": "permanent_failure",
-            "operation": "deliver_draft",
-            "error_category": error.category,
-            "error_code": error.code,
-            "message": str(error),
-        }
-    else:
-        blocker = {
-            "kind": "retry_pending" if attempts_used < budget else "retry_exhausted",
-            "operation": "deliver_draft",
-            "error_category": error.category,
-            "error_code": error.code,
-            "attempts_used": attempts_used,
-            "retry_budget": budget,
-            "retry_generation": task_record["retry_generation"],
-        }
-    task_record["blocker"] = blocker
-    task_record["updated_at"] = utc_now()
-    commit_task_state(
+    _record_operation_failure(
         task_directory,
         task_record,
         run_id,
-        "attempt_failed",
         operation="deliver_draft",
-        outcome="failed",
-        details={
-            "error_category": error.category,
-            "error_code": error.code,
-            "blocker_from": previous_blocker,
-            "blocker_to": blocker,
-        },
+        error_category=error.category,
+        error_code=error.code,
+        message=str(error),
+        retryable=True,
     )
 
 
@@ -489,9 +480,32 @@ def _record_capture_failure(
     run_id: str,
     error: CaptureRejected,
 ) -> None:
+    _record_operation_failure(
+        task_directory,
+        task_record,
+        run_id,
+        operation="capture_raw_evidence",
+        error_category=error.category,
+        error_code=error.code,
+        message=str(error),
+        retryable=error.retryable,
+    )
+
+
+def _record_operation_failure(
+    task_directory: Path,
+    task_record: dict[str, Any],
+    run_id: str,
+    *,
+    operation: str,
+    error_category: str,
+    error_code: str,
+    message: str,
+    retryable: bool,
+) -> None:
     previous_blocker = task_record["blocker"]
-    budget = retry_budget("capture_raw_evidence", error.category)
-    if error.retryable and budget is not None:
+    budget = retry_budget(operation, error_category) if retryable else None
+    if budget is not None:
         if (
             isinstance(previous_blocker, dict)
             and previous_blocker.get("kind") == "retry_pending"
@@ -503,9 +517,9 @@ def _record_capture_failure(
             attempts_used = 1
         blocker: dict[str, Any] = {
             "kind": "retry_pending" if attempts_used < budget else "retry_exhausted",
-            "operation": "capture_raw_evidence",
-            "error_category": error.category,
-            "error_code": error.code,
+            "operation": operation,
+            "error_category": error_category,
+            "error_code": error_code,
             "attempts_used": attempts_used,
             "retry_budget": budget,
             "retry_generation": task_record["retry_generation"],
@@ -513,10 +527,10 @@ def _record_capture_failure(
     else:
         blocker = {
             "kind": "permanent_failure",
-            "operation": "capture_raw_evidence",
-            "error_category": error.category,
-            "error_code": error.code,
-            "message": str(error),
+            "operation": operation,
+            "error_category": error_category,
+            "error_code": error_code,
+            "message": message,
         }
     task_record["blocker"] = blocker
     task_record["updated_at"] = utc_now()
@@ -525,9 +539,14 @@ def _record_capture_failure(
         task_record,
         run_id,
         "attempt_failed",
-        operation="capture_raw_evidence",
+        operation=operation,
         outcome="failed",
-        details={"blocker_from": previous_blocker, "blocker_to": blocker},
+        details={
+            "error_category": error_category,
+            "error_code": error_code,
+            "blocker_from": previous_blocker,
+            "blocker_to": blocker,
+        },
     )
 
 

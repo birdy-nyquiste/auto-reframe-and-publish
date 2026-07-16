@@ -97,6 +97,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": body,
                 "source_url": None,
                 "article_end_observed": True,
+                "all_static_images_captured": True,
                 "media": [],
             }
         )
@@ -121,6 +122,7 @@ class CaptureEvidenceTest(unittest.TestCase):
             body,
         )
         self.assertEqual(manifest["body"]["method"], "copy_paste")
+        self.assertNotIn("header_text", manifest)
         self.assertIsNone(manifest["source_url"])
         self.assertTrue(manifest["article_end"]["observed"])
         self.assertTrue(manifest["completeness"]["complete"])
@@ -137,6 +139,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": "正文足够完整，并包含三次图片出现。",
                 "source_url": "https://example.com/images",
                 "article_end_observed": True,
+                "all_static_images_captured": True,
                 "media": [
                     {
                         "kind": "image",
@@ -194,6 +197,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": "正文完整，但这张图片只能通过视口截图降级取得。",
                 "source_url": None,
                 "article_end_observed": True,
+                "all_static_images_captured": True,
                 "media": [
                     {
                         "kind": "image",
@@ -235,6 +239,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": "这篇文章有充分的复制正文，因此未采集的音视频不会阻止处理继续。",
                 "source_url": "https://example.com/mixed-media",
                 "article_end_observed": True,
+                "all_static_images_captured": True,
                 "media": [
                     {
                         "kind": "gif",
@@ -288,6 +293,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": "仅视频",
                 "source_url": "https://example.com/media-only",
                 "article_end_observed": True,
+                "all_static_images_captured": True,
                 "media": [{"kind": "video"}],
             }
         )
@@ -301,7 +307,82 @@ class CaptureEvidenceTest(unittest.TestCase):
         self.assertEqual(task["blocker"]["operation"], "capture_raw_evidence")
         self.assertEqual(task["blocker"]["error_code"], "media_only_source")
         self.assertTrue(
-            (task_directory / "raw" / "capture" / "manifest.json").exists()
+            (
+                task_directory
+                / "raw"
+                / "capture-attempts"
+                / result["run_id"]
+                / "manifest.json"
+            ).exists()
+        )
+
+    def test_invalid_capture_isolated_from_the_next_submission(self) -> None:
+        chat = json.loads(self.chat.read_text("utf-8"))
+        chat["messages"].extend(
+            [
+                {
+                    "message_id": "invalid-header",
+                    "kind": "text",
+                    "text": "#投稿\n目标: author-invalid",
+                },
+                {
+                    "message_id": "invalid-article",
+                    "kind": "official_account_article",
+                    "title": "损坏图片",
+                    "scripted_capture": {
+                        "clipboard_text": "正文完整，但图片字节不是有效的 base64。",
+                        "source_url": None,
+                        "article_end_observed": True,
+                        "all_static_images_captured": True,
+                        "media": [
+                            {
+                                "kind": "image",
+                                "mime_type": "image/png",
+                                "capture_method": "original_bytes",
+                                "bytes_base64": "not-base64!",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "message_id": "valid-header",
+                    "kind": "text",
+                    "text": "#投稿\n目标: author-valid",
+                },
+                {
+                    "message_id": "valid-article",
+                    "kind": "official_account_article",
+                    "title": "有效文章",
+                    "scripted_capture": {
+                        "clipboard_text": "下一篇文章的完整正文不应被前一任务中断。",
+                        "source_url": None,
+                        "article_end_observed": True,
+                        "all_static_images_captured": True,
+                        "media": [],
+                    },
+                },
+            ]
+        )
+        self.chat.write_text(
+            json.dumps(chat, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        result = self.run_intake()
+
+        self.assertEqual(
+            [task["status"] for task in result["task_results"]],
+            ["permanent_failure", "fake_draft_confirmed"],
+        )
+        invalid_task = json.loads(
+            (
+                self.repository
+                / "tasks"
+                / result["task_ids"][0]
+                / "task.json"
+            ).read_text("utf-8")
+        )
+        self.assertEqual(
+            invalid_task["blocker"]["error_code"], "invalid_capture_evidence"
         )
 
     def test_capture_does_not_commit_when_article_end_was_not_observed(self) -> None:
@@ -310,6 +391,38 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": "虽然复制到了正文片段，但没有观察到文章结束位置。",
                 "source_url": None,
                 "article_end_observed": False,
+                "all_static_images_captured": True,
+                "media": [],
+            }
+        )
+
+        result = self.run_intake()
+
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        attempt_directory = (
+            task_directory / "raw" / "capture-attempts" / result["run_id"]
+        )
+        manifest = json.loads(
+            (attempt_directory / "manifest.json").read_text(
+                "utf-8"
+            )
+        )
+        self.assertEqual(task["milestone"], "task_created")
+        self.assertEqual(task["blocker"]["kind"], "retry_pending")
+        self.assertEqual(task["blocker"]["error_code"], "article_end_not_observed")
+        self.assertFalse(manifest["completeness"]["complete"])
+        self.assertFalse((task_directory / "raw" / "capture").exists())
+
+    def test_capture_does_not_claim_completeness_when_static_images_are_missing(
+        self,
+    ) -> None:
+        self.append_captured_article(
+            {
+                "clipboard_text": "正文和文章结尾都已取得，但静态图片尚未全部采集。",
+                "source_url": None,
+                "article_end_observed": True,
+                "all_static_images_captured": False,
                 "media": [],
             }
         )
@@ -319,14 +432,19 @@ class CaptureEvidenceTest(unittest.TestCase):
         task_directory = self.repository / "tasks" / result["task_ids"][0]
         task = json.loads((task_directory / "task.json").read_text("utf-8"))
         manifest = json.loads(
-            (task_directory / "raw" / "capture" / "manifest.json").read_text(
-                "utf-8"
-            )
+            (
+                task_directory
+                / "raw"
+                / "capture-attempts"
+                / result["run_id"]
+                / "manifest.json"
+            ).read_text("utf-8")
         )
-        self.assertEqual(task["milestone"], "task_created")
         self.assertEqual(task["blocker"]["kind"], "retry_pending")
-        self.assertEqual(task["blocker"]["error_code"], "article_end_not_observed")
+        self.assertEqual(task["blocker"]["error_code"], "static_images_incomplete")
+        self.assertFalse(manifest["completeness"]["all_static_images_captured"])
         self.assertFalse(manifest["completeness"]["complete"])
+        self.assertFalse((task_directory / "raw" / "capture").exists())
 
     def test_structured_source_rebuild_rejects_corrupted_image_evidence(self) -> None:
         self.append_captured_article(
@@ -334,6 +452,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": "正文完整，并且图片证据应当通过哈希完整性检查。",
                 "source_url": "https://example.com/integrity",
                 "article_end_observed": True,
+                "all_static_images_captured": True,
                 "media": [
                     {
                         "kind": "image",
@@ -378,9 +497,10 @@ class CaptureEvidenceTest(unittest.TestCase):
         )
 
         task = json.loads((task_directory / "task.json").read_text("utf-8"))
-        self.assertEqual(resumed.returncode, 2)
-        self.assertIn("Capture evidence hash mismatch", resumed.stderr)
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
         self.assertEqual(task["milestone"], "raw_evidence_ready")
+        self.assertEqual(task["blocker"]["kind"], "permanent_failure")
+        self.assertEqual(task["blocker"]["error_code"], "evidence_integrity_failed")
 
     def test_structured_source_rebuild_rejects_corrupted_viewport_evidence(
         self,
@@ -390,6 +510,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 "clipboard_text": "正文完整，截图裁剪也必须保留并验证原始视口证据。",
                 "source_url": None,
                 "article_end_observed": True,
+                "all_static_images_captured": True,
                 "media": [
                     {
                         "kind": "image",
@@ -437,9 +558,10 @@ class CaptureEvidenceTest(unittest.TestCase):
         )
 
         task = json.loads((task_directory / "task.json").read_text("utf-8"))
-        self.assertEqual(resumed.returncode, 2)
-        self.assertIn("Capture evidence hash mismatch", resumed.stderr)
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
         self.assertEqual(task["milestone"], "raw_evidence_ready")
+        self.assertEqual(task["blocker"]["kind"], "permanent_failure")
+        self.assertEqual(task["blocker"]["error_code"], "evidence_integrity_failed")
 
 
 if __name__ == "__main__":

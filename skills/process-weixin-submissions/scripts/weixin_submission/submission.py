@@ -24,6 +24,7 @@ class CaptureInput:
     clipboard_text: str
     source_url: str | None
     article_end_observed: bool
+    all_static_images_captured: bool
     media: tuple[dict[str, Any], ...]
 
 
@@ -147,7 +148,7 @@ def parse_submission_messages(messages_value: object, window_id: str) -> Submiss
             raise WorkflowError(
                 "Legacy scripted articles with images must use scripted_capture"
             )
-        capture = CaptureInput(body, _optional_url(source_url_value), True, ())
+        capture = CaptureInput(body, _optional_url(source_url_value), True, True, ())
     else:
         if not isinstance(scripted_capture, dict):
             raise WorkflowError("scripted_capture must be an object")
@@ -158,6 +159,11 @@ def parse_submission_messages(messages_value: object, window_id: str) -> Submiss
         article_end_observed = scripted_capture.get("article_end_observed")
         if not isinstance(article_end_observed, bool):
             raise WorkflowError("article_end_observed must be boolean")
+        all_static_images_captured = scripted_capture.get(
+            "all_static_images_captured"
+        )
+        if not isinstance(all_static_images_captured, bool):
+            raise WorkflowError("all_static_images_captured must be boolean")
         media_value = scripted_capture.get("media", [])
         if not isinstance(media_value, list) or not all(
             isinstance(item, dict) for item in media_value
@@ -167,6 +173,7 @@ def parse_submission_messages(messages_value: object, window_id: str) -> Submiss
             body,
             _optional_url(source_url_value),
             article_end_observed,
+            all_static_images_captured,
             tuple(media_value),
         )
 

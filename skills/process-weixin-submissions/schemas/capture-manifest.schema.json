@@ -7,7 +7,6 @@
     "schema_version",
     "capture_version",
     "adapter",
-    "header_text",
     "title",
     "source_url",
     "body",
@@ -21,7 +20,6 @@
     "schema_version": {"type": "integer", "const": 2},
     "capture_version": {"type": "integer", "const": 1},
     "adapter": {"type": "string", "const": "scripted_capture"},
-    "header_text": {"type": "string"},
     "title": {"type": "string"},
     "source_url": {"type": ["string", "null"]},
     "body": {

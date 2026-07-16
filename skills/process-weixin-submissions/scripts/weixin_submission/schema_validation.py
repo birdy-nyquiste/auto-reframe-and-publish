@@ -27,7 +27,7 @@ def load_schema(record_type: str) -> dict[str, Any]:
 
 def validate_record(record_type: str, value: dict[str, Any]) -> None:
     schema = load_schema(record_type)
-    _validate(value, schema, record_type)
+    _validate(value, schema, record_type, schema)
     if record_type == "task":
         _validate_task_invariants(value, schema)
     if record_type == "run":
@@ -70,7 +70,28 @@ def milestones() -> tuple[str, ...]:
     return tuple(values)
 
 
-def _validate(value: Any, schema: dict[str, Any], location: str) -> None:
+def _validate(
+    value: Any,
+    schema: dict[str, Any],
+    location: str,
+    root_schema: dict[str, Any],
+) -> None:
+    reference = schema.get("$ref")
+    if reference is not None:
+        if not isinstance(reference, str) or not reference.startswith("#/$defs/"):
+            raise SchemaValidationError(f"{location}: unsupported $ref {reference!r}")
+        definitions = root_schema.get("$defs")
+        definition_name = reference.removeprefix("#/$defs/")
+        definition = (
+            definitions.get(definition_name)
+            if isinstance(definitions, dict)
+            else None
+        )
+        if not isinstance(definition, dict):
+            raise SchemaValidationError(f"{location}: unresolved $ref {reference!r}")
+        _validate(value, definition, location, root_schema)
+        return
+
     if "oneOf" in schema:
         alternatives = schema["oneOf"]
         if not isinstance(alternatives, list):
@@ -78,7 +99,7 @@ def _validate(value: Any, schema: dict[str, Any], location: str) -> None:
         matches = 0
         for alternative in alternatives:
             try:
-                _validate(value, alternative, location)
+                _validate(value, alternative, location, root_schema)
             except SchemaValidationError:
                 continue
             matches += 1
@@ -117,11 +138,16 @@ def _validate(value: Any, schema: dict[str, Any], location: str) -> None:
         for field, field_value in value.items():
             field_schema = properties.get(field)
             if isinstance(field_schema, dict):
-                _validate(field_value, field_schema, f"{location}.{field}")
+                _validate(
+                    field_value,
+                    field_schema,
+                    f"{location}.{field}",
+                    root_schema,
+                )
 
     if isinstance(value, list) and isinstance(schema.get("items"), dict):
         for index, item in enumerate(value):
-            _validate(item, schema["items"], f"{location}[{index}]")
+            _validate(item, schema["items"], f"{location}[{index}]", root_schema)
 
 
 def _matches_type(value: Any, expected: object) -> bool:

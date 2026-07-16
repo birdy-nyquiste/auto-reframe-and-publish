@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rewrite-input.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "task_id",
+    "trusted_controls",
+    "untrusted_source",
+    "resources",
+    "security"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "contract_version": {"type": "integer", "const": 1},
+    "task_id": {"type": "string"},
+    "trusted_controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_id", "requirements_mode", "requirements"],
+      "properties": {
+        "target_id": {"type": "string"},
+        "requirements_mode": {"type": "string", "enum": ["default", "custom"]},
+        "requirements": {"type": ["string", "null"]}
+      }
+    },
+    "untrusted_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "images"],
+      "properties": {
+        "path": {"type": "string", "const": "sources/article.json"},
+        "sha256": {"type": "string"},
+        "images": {"type": "array", "items": {"$ref": "#/$defs/image"}}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "default_prompt", "schema"],
+      "properties": {
+        "policy": {"$ref": "#/$defs/resource"},
+        "default_prompt": {"$ref": "#/$defs/resource"},
+        "schema": {"$ref": "#/$defs/resource"}
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_trust", "allowed_effect", "prohibited_actions"],
+      "properties": {
+        "source_trust": {"type": "string", "const": "untrusted"},
+        "allowed_effect": {"type": "string", "const": "content_only"},
+        "prohibited_actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "change_target",
+              "read_local_files",
+              "execute_commands",
+              "expand_external_actions"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string"},
+        "sha256": {"type": "string"}
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_path", "asset_sha256"],
+      "properties": {
+        "asset_path": {"type": "string"},
+        "asset_sha256": {"type": "string"}
+      }
+    }
+  }
+}

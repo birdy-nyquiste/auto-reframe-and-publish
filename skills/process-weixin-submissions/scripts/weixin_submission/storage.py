@@ -11,7 +11,7 @@ from .schema_validation import validate_record
 
 
 REPOSITORY_VERSION = 2
-VALIDATION_SCOPE = "ticket_04_capture_evidence"
+VALIDATION_SCOPE = "ticket_05_secure_rewrite_artifact"
 
 
 class WorkflowError(Exception):

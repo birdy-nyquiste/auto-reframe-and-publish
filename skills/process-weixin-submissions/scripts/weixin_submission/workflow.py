@@ -12,6 +12,11 @@ from .capture import (
 from .fake_blog import BlogAdapterError, FakeBlogAdapter
 from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
+from .rewrite import (
+    RewriteRejected,
+    generate_validated_rewrite,
+    load_rewrite_artifact,
+)
 from .schema_validation import SchemaValidationError
 from .scripted_chat import capture_next_window, establish_baseline
 from .state import (
@@ -35,7 +40,6 @@ from .storage import (
 from .submission import (
     SCHEMA_VERSION,
     Submission,
-    build_placeholder_rewrite,
     parse_submission_messages,
 )
 
@@ -46,6 +50,7 @@ MISSING_CAPABILITIES = (
     "real WeChat UI text and static-image capture adapter",
     "Windows Computer Use",
     "approved rewrite policy",
+    "real Agent rewrite generation",
     "real Blog API",
 )
 
@@ -84,6 +89,7 @@ def run_scripted_chat(
     chat_path: Path,
     fake_blog_directory: Path,
     simulate_interruption_after: str | None = None,
+    scripted_rewrite_outcome: str = "success",
 ) -> dict[str, object]:
     metadata = load_record("repository", repository / "repository.json")
     intake = metadata.get("intake")
@@ -127,6 +133,7 @@ def run_scripted_chat(
         pending_window,
         fake_blog_directory,
         simulate_interruption_after,
+        scripted_rewrite_outcome,
         str(pending_window["run_id"]),
         [str(task_id) for task_id in task_ids],
         commit_input_cursor,
@@ -141,6 +148,7 @@ def _run_candidates(
     input_window: dict[str, object],
     fake_blog_directory: Path,
     simulate_interruption_after: str | None,
+    scripted_rewrite_outcome: str,
     run_id: str,
     created_task_ids: list[str],
     commit_input_cursor: Callable[[], None],
@@ -245,6 +253,7 @@ def _run_candidates(
                 blog,
                 run_id,
                 simulate_interruption_after,
+                scripted_rewrite_outcome,
             )
             if delivery_response is None:
                 blocker = task_record["blocker"]
@@ -348,6 +357,7 @@ def _process_task(
     blog: FakeBlogAdapter,
     run_id: str,
     simulate_interruption_after: str | None,
+    scripted_rewrite_outcome: str,
 ) -> dict[str, Any] | None:
     task_id = task_record["task_id"]
 
@@ -398,21 +408,43 @@ def _process_task(
         _maybe_interrupt(simulate_interruption_after, "structured_source_ready")
         _finish_attempt(task_directory, task_id, run_id, "build_structured_source")
 
-    source = load_structured_source(task_directory / "sources" / "article.json")
     if task_record["milestone"] == "structured_source_ready":
         _start_attempt(task_directory, task_id, run_id, "generate_rewrite")
-        rewrite = build_placeholder_rewrite(submission, source)
-        rewrite_manifest = {
-            "schema_version": SCHEMA_VERSION,
-            "artifact_kind": "placeholder_rewrite",
-            "title": source.title,
-            "target_id": submission.target_id,
-            "requirements_mode": "custom" if submission.requirements else "default",
-            "source_url": source.source_url,
-            "images": list(source.images),
-        }
-        write_text(task_directory / "rewrite" / "content.md", rewrite)
-        write_json(task_directory / "rewrite" / "manifest.json", rewrite_manifest)
+        try:
+            source = load_structured_source(
+                task_directory / "sources" / "article.json"
+            )
+            generate_validated_rewrite(
+                task_directory,
+                submission,
+                source,
+                run_id,
+                scripted_rewrite_outcome,
+            )
+        except RewriteRejected as error:
+            _record_operation_failure(
+                task_directory,
+                task_record,
+                run_id,
+                operation="generate_rewrite",
+                error_category=error.category,
+                error_code=error.code,
+                message=str(error),
+                retryable=False,
+            )
+            return None
+        except (SchemaValidationError, WorkflowError) as error:
+            _record_operation_failure(
+                task_directory,
+                task_record,
+                run_id,
+                operation="generate_rewrite",
+                error_category="rewrite_validation",
+                error_code="rewrite_generation_invalid",
+                message=str(error),
+                retryable=False,
+            )
+            return None
         commit_task_milestone(
             task_directory, task_record, "rewrite_artifact_ready", run_id
         )
@@ -420,17 +452,28 @@ def _process_task(
         _finish_attempt(task_directory, task_id, run_id, "generate_rewrite")
 
     if task_record["milestone"] == "rewrite_artifact_ready":
+        try:
+            artifact = load_rewrite_artifact(task_directory, submission.target_id)
+        except (SchemaValidationError, WorkflowError) as error:
+            _record_operation_failure(
+                task_directory,
+                task_record,
+                run_id,
+                operation="validate_rewrite_artifact",
+                error_category="rewrite_integrity",
+                error_code="rewrite_artifact_invalid",
+                message=str(error),
+                retryable=False,
+            )
+            return None
         _start_attempt(task_directory, task_id, run_id, "deliver_draft")
-        rewrite = (task_directory / "rewrite" / "content.md").read_text(
-            encoding="utf-8"
-        )
         delivery_request = {
             "schema_version": SCHEMA_VERSION,
             "idempotency_key": task_id,
-            "target_id": submission.target_id,
-            "title": source.title,
-            "body_markdown": rewrite,
-            "images": list(source.images),
+            "target_id": artifact.target_id,
+            "title": artifact.title,
+            "body_markdown": artifact.content,
+            "images": list(artifact.images),
             "adapter": "fake",
         }
         write_json(task_directory / "delivery" / "request.json", delivery_request)

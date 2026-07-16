@@ -18,6 +18,8 @@ A normal `run` journals the complete captured window, its run ID, and planned ta
 
 The run then reconciles task and raw-intake projections from committed events and resumes executable tasks after their last committed milestone. It never calls the draft adapter again after `draft_delivery_confirmed`. If a previous process left a run in `processing`, the next mutating run records it as `interrupted`, links it through `recovered_by_run`, and generates an interruption report before continuing.
 
+Rewrite generation or validation failures remain at `structured_source_ready` with a typed permanent blocker and immutable evidence under `rewrite/attempts/<run_id>/`. A committed rewrite is hash-checked again before delivery; integrity failure remains at `rewrite_artifact_ready` and cannot reach the Blog adapter.
+
 `--simulate-interruption-after <milestone>` is a validation-only scripted-adapter option. Do not use it for an operator's production task.
 
 ## Retry

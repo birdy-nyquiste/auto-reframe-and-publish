@@ -38,7 +38,12 @@ weixin-blog-publish-data/
 │   │   │   └── article.json
 │   │   ├── rewrite/
 │   │   │   ├── content.md
-│   │   │   └── manifest.json
+│   │   │   ├── manifest.json
+│   │   │   └── attempts/
+│   │   │       └── <run_id>/
+│   │   │           ├── input.json
+│   │   │           ├── candidate.md     # 生成成功或验证失败时存在
+│   │   │           └── failure.json     # 生成或验证失败时存在
 │   │   └── delivery/
 │   │       ├── request.json
 │   │       └── response.json
@@ -65,6 +70,8 @@ weixin-blog-publish-data/
 - Screenshot fallback preserves both the cropped static asset and the unmodified viewport screenshot; GIF stores one static frame and a degradation warning. Video and audio are neither downloaded nor transcribed.
 - `sources/article.json` is rebuildable from `raw/capture/manifest.json` and hash-verified evidence.
 - A validated rewrite artifact is immutable after it is committed.
+- Rewrite attempts explicitly separate trusted task controls from hash-addressed untrusted sources. Failed generations or validations remain under `rewrite/attempts/<run_id>/` and never occupy the committed artifact paths.
+- The committed rewrite manifest records content, source, image, policy, prompt and Schema hashes and is revalidated before delivery. It contains no Blog request or response state.
 - `delivery/request.json` is regenerated from the rewrite artifact and the real Blog adapter.
 - `report.md` is regenerated from the run record and event history.
 - Atomic writes use same-directory temporary files that disappear after replacement.

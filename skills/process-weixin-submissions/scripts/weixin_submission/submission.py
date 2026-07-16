@@ -192,15 +192,3 @@ def _optional_url(value: object) -> str | None:
     if source_url_value is not None and not isinstance(source_url_value, str):
         raise WorkflowError("source_url must be a string or null")
     return source_url_value
-
-
-def build_placeholder_rewrite(
-    submission: Submission, source: StructuredSource
-) -> str:
-    requirement_note = submission.requirements or "默认改写规则（Ticket 09 前为占位）"
-    return (
-        f"# {source.title}\n\n"
-        "> 这是 Ticket 01 的可验证替代改写产物，不代表正式内容改写规则。\n\n"
-        f"## 编辑要求\n\n{requirement_note}\n\n"
-        f"## 正文\n\n{source.body}\n"
-    )

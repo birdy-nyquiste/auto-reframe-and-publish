@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rewrite-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_version",
+    "artifact_kind",
+    "generator",
+    "generation_input_sha256",
+    "title",
+    "content",
+    "source",
+    "trusted_controls",
+    "resources",
+    "security"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "artifact_version": {"type": "integer", "const": 1},
+    "artifact_kind": {"type": "string", "const": "validated_rewrite"},
+    "generator": {"type": "string", "const": "scripted_placeholder_v1"},
+    "generation_input_sha256": {"type": "string"},
+    "title": {"type": "string"},
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "format", "sha256"],
+      "properties": {
+        "path": {"type": "string", "const": "rewrite/content.md"},
+        "format": {"type": "string", "const": "markdown"},
+        "sha256": {"type": "string"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "images"],
+      "properties": {
+        "path": {"type": "string", "const": "sources/article.json"},
+        "sha256": {"type": "string"},
+        "images": {"type": "array", "items": {"$ref": "#/$defs/image"}}
+      }
+    },
+    "trusted_controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_id", "requirements_mode", "requirements_sha256"],
+      "properties": {
+        "target_id": {"type": "string"},
+        "requirements_mode": {"type": "string", "enum": ["default", "custom"]},
+        "requirements_sha256": {"type": ["string", "null"]}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "default_prompt", "schema"],
+      "properties": {
+        "policy": {"$ref": "#/$defs/resource"},
+        "default_prompt": {"$ref": "#/$defs/resource"},
+        "schema": {"$ref": "#/$defs/resource"}
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_trust", "allowed_effect"],
+      "properties": {
+        "source_trust": {"type": "string", "const": "untrusted"},
+        "allowed_effect": {"type": "string", "const": "content_only"}
+      }
+    }
+  },
+  "$defs": {
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string"},
+        "sha256": {"type": "string"}
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_path", "asset_sha256"],
+      "properties": {
+        "asset_path": {"type": "string"},
+        "asset_sha256": {"type": "string"}
+      }
+    }
+  }
+}

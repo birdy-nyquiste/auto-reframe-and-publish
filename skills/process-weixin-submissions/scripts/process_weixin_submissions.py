@@ -32,6 +32,12 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--scripted-chat", type=Path, required=True)
     run.add_argument("--fake-blog-directory", type=Path, required=True)
     run.add_argument(
+        "--scripted-rewrite-outcome",
+        choices=("success", "generation_failure", "validation_failure"),
+        default="success",
+        help="Validation-only scripted content-processing outcome.",
+    )
+    run.add_argument(
         "--simulate-interruption-after",
         choices=milestones(),
     )
@@ -58,6 +64,7 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 arguments.scripted_chat,
                 arguments.fake_blog_directory,
                 arguments.simulate_interruption_after,
+                arguments.scripted_rewrite_outcome,
             )
     if arguments.operation == "status":
         return 0, repository_status(arguments.repository)

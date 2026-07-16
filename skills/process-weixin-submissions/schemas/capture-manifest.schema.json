@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "capture-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "capture_version",
+    "adapter",
+    "header_text",
+    "title",
+    "source_url",
+    "body",
+    "article_end",
+    "image_occurrences",
+    "embedded_media",
+    "warnings",
+    "completeness"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "capture_version": {"type": "integer", "const": 1},
+    "adapter": {"type": "string", "const": "scripted_capture"},
+    "header_text": {"type": "string"},
+    "title": {"type": "string"},
+    "source_url": {"type": ["string", "null"]},
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path", "sha256", "character_count"],
+      "properties": {
+        "method": {"type": "string", "const": "copy_paste"},
+        "path": {"type": "string"},
+        "sha256": {"type": "string"},
+        "character_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "article_end": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed", "method"],
+      "properties": {
+        "observed": {"type": "boolean"},
+        "method": {"type": "string", "const": "scripted_fixture"}
+      }
+    },
+    "image_occurrences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "position",
+          "article_position",
+          "source_kind",
+          "asset_path",
+          "asset_sha256",
+          "mime_type",
+          "capture_method",
+          "degradation",
+          "viewport_evidence"
+        ],
+        "properties": {
+          "position": {"type": "integer", "minimum": 1},
+          "article_position": {"type": "integer", "minimum": 1},
+          "source_kind": {"type": "string", "enum": ["image", "gif"]},
+          "asset_path": {"type": "string"},
+          "asset_sha256": {"type": "string"},
+          "mime_type": {"type": "string"},
+          "capture_method": {"type": "string", "enum": ["original_bytes", "viewport_crop", "static_frame"]},
+          "degradation": {"type": ["string", "null"], "enum": ["screenshot_crop", "animation_removed", null]},
+          "viewport_evidence": {
+            "oneOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path", "sha256", "crop"],
+                "properties": {
+                  "path": {"type": "string"},
+                  "sha256": {"type": "string"},
+                  "crop": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["x", "y", "width", "height"],
+                    "properties": {
+                      "x": {"type": "integer", "minimum": 0},
+                      "y": {"type": "integer", "minimum": 0},
+                      "width": {"type": "integer", "minimum": 1},
+                      "height": {"type": "integer", "minimum": 1}
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "embedded_media": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["article_position", "kind", "downloaded", "transcribed", "warning"],
+        "properties": {
+          "article_position": {"type": "integer", "minimum": 1},
+          "kind": {"type": "string", "enum": ["video", "audio"]},
+          "downloaded": {"type": "boolean", "const": false},
+          "transcribed": {"type": "boolean", "const": false},
+          "warning": {"type": "string"}
+        }
+      }
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body_text", "article_end_observed", "all_static_images_captured", "complete"],
+      "properties": {
+        "body_text": {"type": "boolean"},
+        "article_end_observed": {"type": "boolean"},
+        "all_static_images_captured": {"type": "boolean"},
+        "complete": {"type": "boolean"}
+      }
+    }
+  }
+}

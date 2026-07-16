@@ -118,7 +118,13 @@
   },
   "x-milestone-invariants": {
     "task_created": {
-      "allowed_blockers": ["none", "needs_input"],
+      "allowed_blockers": [
+        "none",
+        "needs_input",
+        "retry_pending",
+        "retry_exhausted",
+        "permanent_failure"
+      ],
       "external_draft": "null"
     },
     "raw_evidence_ready": {

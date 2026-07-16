@@ -23,7 +23,13 @@ weixin-blog-publish-data/
 │   │   │   └── 000002-event_....json
 │   │   ├── raw/
 │   │   │   ├── intake.json
-│   │   │   └── submission.json
+│   │   │   └── capture/
+│   │   │       ├── manifest.json
+│   │   │       ├── clipboard.txt
+│   │   │       ├── assets/
+│   │   │       │   └── <sha256>        # 原图、裁剪图或 GIF 静态帧
+│   │   │       └── viewports/
+│   │   │           └── <sha256>        # 截图降级时的未修改视口证据
 │   │   ├── sources/
 │   │   │   └── article.json
 │   │   ├── rewrite/
@@ -36,7 +42,7 @@ weixin-blog-publish-data/
 │       └── ...
 ```
 
-这是当前 `core_validated` 脚本适配器实际写出的目录。完整 Windows 采集后增加的原图、视口证据、哈希和采集清单将在对应采集 Ticket 中扩展，但不会改变 `runs/` 与 `tasks/` 的同级关系。
+这是当前脚本化采集适配器实际写出的目录。媒体文件采用 SHA-256 内容寻址且不依赖扩展名；MIME 类型、文章内出现顺序、采集方法、降级信息和哈希都保存在 `manifest.json`。相同字节只保存一次，但每次文章内出现仍有独立清单项。真实 Windows Computer Use 采集适配器尚未实现，但不会改变 `runs/` 与 `tasks/` 的同级关系。
 
 ## Relationships
 
@@ -50,7 +56,9 @@ weixin-blog-publish-data/
 ## Storage boundaries
 
 - `raw/` is immutable evidence after its milestone is committed.
-- `sources/` is rebuildable from `raw/`.
+- `raw/capture/clipboard.txt` is copied text, never OCR reconstruction. A missing source URL is allowed when the body, static images and article-end evidence are complete.
+- Screenshot fallback preserves both the cropped static asset and the unmodified viewport screenshot; GIF stores one static frame and a degradation warning. Video and audio are neither downloaded nor transcribed.
+- `sources/article.json` is rebuildable from `raw/capture/manifest.json` and hash-verified evidence.
 - A validated rewrite artifact is immutable after it is committed.
 - `delivery/request.json` is regenerated from the rewrite artifact and the real Blog adapter.
 - `report.md` is regenerated from the run record and event history.

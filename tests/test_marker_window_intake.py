@@ -144,7 +144,9 @@ class MarkerWindowIntakeTest(unittest.TestCase):
         )
         task_directory = self.repository / "tasks" / task_id
         raw = json.loads(
-            (task_directory / "raw" / "submission.json").read_text("utf-8")
+            (task_directory / "raw" / "capture" / "manifest.json").read_text(
+                "utf-8"
+            )
         )
         rewrite = (task_directory / "rewrite" / "content.md").read_text("utf-8")
         delivery_request = json.loads(
@@ -157,7 +159,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
 
         self.assertEqual(run["input_window"]["previous_marker_id"], baseline_marker_id)
         self.assertEqual(run["input_window"]["current_marker_id"], result["marker_id"])
-        self.assertEqual(raw["article"]["title"], "本次应处理的文章")
+        self.assertEqual(raw["title"], "本次应处理的文章")
         self.assertIn("本次应处理的文章", rewrite)
         self.assertEqual(delivery_request["idempotency_key"], task_id)
         self.assertEqual(delivery_response["status"], "accepted")
@@ -182,10 +184,11 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 / "tasks"
                 / next_result["task_ids"][0]
                 / "raw"
-                / "submission.json"
+                / "capture"
+                / "manifest.json"
             ).read_text("utf-8")
         )
-        self.assertEqual(next_raw["article"]["title"], "下一次才处理的文章")
+        self.assertEqual(next_raw["title"], "下一次才处理的文章")
 
     def test_reinitialize_refuses_to_replace_an_existing_baseline(self) -> None:
         initialized = self.initialize_chat()
@@ -360,12 +363,13 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                     / "tasks"
                     / task_id
                     / "raw"
-                    / "submission.json"
+                    / "capture"
+                    / "manifest.json"
                 ).read_text("utf-8")
             )
             for task_id in duplicate_task_ids
         ]
-        self.assertEqual(duplicate_raw[0]["article"], duplicate_raw[1]["article"])
+        self.assertEqual(duplicate_raw[0], duplicate_raw[1])
         self.assertEqual(len(list((self.fake_blog / "drafts").glob("*.json"))), 2)
 
 

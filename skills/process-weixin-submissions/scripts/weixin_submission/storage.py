@@ -11,7 +11,7 @@ from .schema_validation import validate_record
 
 
 REPOSITORY_VERSION = 2
-VALIDATION_SCOPE = "ticket_03_durable_workflow"
+VALIDATION_SCOPE = "ticket_04_capture_evidence"
 
 
 class WorkflowError(Exception):
@@ -43,10 +43,22 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def write_text(path: Path, value: str) -> None:
+    write_bytes(path, value.encode("utf-8"))
+
+
+def write_bytes(path: Path, value: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(value, encoding="utf-8")
+    temporary.write_bytes(value)
     os.replace(temporary, path)
+
+
+def write_immutable_bytes(path: Path, value: bytes) -> None:
+    if path.exists():
+        if path.read_bytes() != value:
+            raise WorkflowError(f"Immutable evidence already differs: {path}")
+        return
+    write_bytes(path, value)
 
 
 def initialize_repository(repository: Path) -> dict[str, object]:

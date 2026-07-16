@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from .capture import (
+    CaptureRejected,
+    capture_raw_evidence,
+    load_structured_source,
+    rebuild_structured_source,
+)
 from .fake_blog import BlogAdapterError, FakeBlogAdapter
 from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
@@ -29,16 +35,14 @@ from .submission import (
     SCHEMA_VERSION,
     Submission,
     build_placeholder_rewrite,
-    load_structured_source,
     parse_submission_messages,
-    structured_source_record,
 )
 
 
 MISSING_CAPABILITIES = (
     "v1 tracer repository migration",
     "production retry budgets based on operational evidence",
-    "full WeChat text and static-image capture",
+    "real WeChat UI text and static-image capture adapter",
     "Windows Computer Use",
     "approved rewrite policy",
     "real Blog API",
@@ -348,10 +352,11 @@ def _process_task(
 
     if task_record["milestone"] == "task_created":
         _start_attempt(task_directory, task_id, run_id, "capture_raw_evidence")
-        write_json(
-            task_directory / "raw" / "submission.json",
-            _raw_submission_record(submission),
-        )
+        try:
+            capture_raw_evidence(task_directory, submission)
+        except CaptureRejected as error:
+            _record_capture_failure(task_directory, task_record, run_id, error)
+            return None
         commit_task_milestone(
             task_directory, task_record, "raw_evidence_ready", run_id
         )
@@ -360,9 +365,7 @@ def _process_task(
 
     if task_record["milestone"] == "raw_evidence_ready":
         _start_attempt(task_directory, task_id, run_id, "build_structured_source")
-        source_path = task_directory / "sources" / "article.json"
-        write_json(source_path, structured_source_record(submission.source))
-        load_structured_source(source_path)
+        rebuild_structured_source(task_directory)
         commit_task_milestone(
             task_directory, task_record, "structured_source_ready", run_id
         )
@@ -480,6 +483,54 @@ def _record_delivery_failure(
     )
 
 
+def _record_capture_failure(
+    task_directory: Path,
+    task_record: dict[str, Any],
+    run_id: str,
+    error: CaptureRejected,
+) -> None:
+    previous_blocker = task_record["blocker"]
+    budget = retry_budget("capture_raw_evidence", error.category)
+    if error.retryable and budget is not None:
+        if (
+            isinstance(previous_blocker, dict)
+            and previous_blocker.get("kind") == "retry_pending"
+            and previous_blocker.get("retry_generation")
+            == task_record["retry_generation"]
+        ):
+            attempts_used = int(previous_blocker["attempts_used"]) + 1
+        else:
+            attempts_used = 1
+        blocker: dict[str, Any] = {
+            "kind": "retry_pending" if attempts_used < budget else "retry_exhausted",
+            "operation": "capture_raw_evidence",
+            "error_category": error.category,
+            "error_code": error.code,
+            "attempts_used": attempts_used,
+            "retry_budget": budget,
+            "retry_generation": task_record["retry_generation"],
+        }
+    else:
+        blocker = {
+            "kind": "permanent_failure",
+            "operation": "capture_raw_evidence",
+            "error_category": error.category,
+            "error_code": error.code,
+            "message": str(error),
+        }
+    task_record["blocker"] = blocker
+    task_record["updated_at"] = utc_now()
+    commit_task_state(
+        task_directory,
+        task_record,
+        run_id,
+        "attempt_failed",
+        operation="capture_raw_evidence",
+        outcome="failed",
+        details={"blocker_from": previous_blocker, "blocker_to": blocker},
+    )
+
+
 def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
     metadata = load_record("repository", repository / "repository.json")
     if metadata["pending_window"] is not None:
@@ -585,20 +636,6 @@ def _maybe_interrupt(requested: str | None, milestone: str) -> None:
 def _input_window_id(input_window: dict[str, object]) -> str:
     value = input_window.get("current_marker_id") or input_window.get("window_id")
     return str(value)
-
-
-def _raw_submission_record(submission: Submission) -> dict[str, object]:
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "window_id": submission.window_id,
-        "header_text": submission.header_text,
-        "article": {
-            "title": submission.source.title,
-            "body": submission.source.body,
-            "source_url": submission.source.source_url,
-            "images": list(submission.source.images),
-        },
-    }
 
 
 def _render_report(

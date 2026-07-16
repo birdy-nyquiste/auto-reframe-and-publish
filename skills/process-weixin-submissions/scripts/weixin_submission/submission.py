@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Any
 
-from .storage import WorkflowError, read_json
+from .storage import WorkflowError
 
 
 SCHEMA_VERSION = 2
@@ -15,6 +15,16 @@ class StructuredSource:
     body: str
     source_url: str | None
     images: tuple[str, ...]
+    warnings: tuple[str, ...] = ()
+    media_limitations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CaptureInput:
+    clipboard_text: str
+    source_url: str | None
+    article_end_observed: bool
+    media: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -23,7 +33,8 @@ class Submission:
     header_text: str
     target_id: str
     requirements: str | None
-    source: StructuredSource
+    title: str
+    capture: CaptureInput
 
 
 @dataclass(frozen=True)
@@ -127,51 +138,53 @@ def parse_submission_messages(messages_value: object, window_id: str) -> Submiss
     header_text = require_string(header.get("text"), "task header text")
     task_header = parse_task_header(header_text)
     title = require_string(article.get("title"), "article title")
-    body = require_string(article.get("body"), "article body")
-    source_url_value = article.get("source_url")
-    if source_url_value is not None and not isinstance(source_url_value, str):
-        raise WorkflowError("source_url must be a string or null")
-    images_value = article.get("images", [])
-    if not isinstance(images_value, list) or not all(
-        isinstance(item, str) for item in images_value
-    ):
-        raise WorkflowError("images must be a list of strings")
+    scripted_capture = article.get("scripted_capture")
+    if scripted_capture is None:
+        body = require_string(article.get("body"), "article body")
+        source_url_value = article.get("source_url")
+        images_value = article.get("images", [])
+        if images_value:
+            raise WorkflowError(
+                "Legacy scripted articles with images must use scripted_capture"
+            )
+        capture = CaptureInput(body, _optional_url(source_url_value), True, ())
+    else:
+        if not isinstance(scripted_capture, dict):
+            raise WorkflowError("scripted_capture must be an object")
+        body = require_string(
+            scripted_capture.get("clipboard_text"), "captured clipboard text"
+        )
+        source_url_value = scripted_capture.get("source_url")
+        article_end_observed = scripted_capture.get("article_end_observed")
+        if not isinstance(article_end_observed, bool):
+            raise WorkflowError("article_end_observed must be boolean")
+        media_value = scripted_capture.get("media", [])
+        if not isinstance(media_value, list) or not all(
+            isinstance(item, dict) for item in media_value
+        ):
+            raise WorkflowError("scripted capture media must be a list of objects")
+        capture = CaptureInput(
+            body,
+            _optional_url(source_url_value),
+            article_end_observed,
+            tuple(media_value),
+        )
 
     return Submission(
         window_id=window_id,
         header_text=header_text,
         target_id=task_header.target_id,
         requirements=task_header.requirements,
-        source=StructuredSource(
-            title=title,
-            body=body,
-            source_url=source_url_value,
-            images=tuple(images_value),
-        ),
+        title=title,
+        capture=capture,
     )
 
 
-def structured_source_record(source: StructuredSource) -> dict[str, object]:
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "title": source.title,
-        "body": source.body,
-        "source_url": source.source_url,
-        "images": list(source.images),
-    }
-
-
-def load_structured_source(path: Path) -> StructuredSource:
-    record = read_json(path)
-    title = require_string(record.get("title"), "structured source title")
-    body = require_string(record.get("body"), "structured source body")
-    source_url = record.get("source_url")
-    if source_url is not None and not isinstance(source_url, str):
-        raise WorkflowError("structured source URL must be a string or null")
-    images = record.get("images")
-    if not isinstance(images, list) or not all(isinstance(item, str) for item in images):
-        raise WorkflowError("structured source images must be a list of strings")
-    return StructuredSource(title, body, source_url, tuple(images))
+def _optional_url(value: object) -> str | None:
+    source_url_value = value
+    if source_url_value is not None and not isinstance(source_url_value, str):
+        raise WorkflowError("source_url must be a string or null")
+    return source_url_value
 
 
 def build_placeholder_rewrite(

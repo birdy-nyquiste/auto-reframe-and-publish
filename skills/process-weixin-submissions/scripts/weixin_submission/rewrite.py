@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .schema_validation import SchemaValidationError, validate_record
 from .state import load_record
@@ -51,6 +51,65 @@ class AgentRewriteOutput:
     manifest: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class AgentSourceImage:
+    """One explicitly permitted, integrity-checked image supplied as data."""
+
+    asset_path: str
+    asset_sha256: str
+    content: bytes
+
+
+class RewriteGenerator(Protocol):
+    """Content-only handoff implemented by a running Agent or a test fixture."""
+
+    generator_id: str
+
+    def generate(
+        self,
+        rewrite_input: dict[str, Any],
+        source: StructuredSource,
+        source_images: list[dict[str, str]],
+        permitted_images: tuple[AgentSourceImage, ...],
+        resource_records: dict[str, dict[str, str]],
+        input_sha256: str,
+    ) -> AgentRewriteOutput:
+        """Return Markdown and its manifest without performing external actions."""
+
+
+@dataclass(frozen=True)
+class ScriptedAgentGenerator:
+    """Data-only core-validation fixture for the live Agent callback seam."""
+
+    outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS
+    generator_id: str = GENERATOR
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.outcome, ScriptedRewriteOutcome):
+            raise WorkflowError(
+                f"Unsupported scripted rewrite outcome: {self.outcome}"
+            )
+
+    def generate(
+        self,
+        rewrite_input: dict[str, Any],
+        source: StructuredSource,
+        source_images: list[dict[str, str]],
+        permitted_images: tuple[AgentSourceImage, ...],
+        resource_records: dict[str, dict[str, str]],
+        input_sha256: str,
+    ) -> AgentRewriteOutput:
+        return _scripted_agent_generate(
+            rewrite_input,
+            source,
+            source_images,
+            permitted_images,
+            resource_records,
+            input_sha256,
+            self.outcome,
+        )
+
+
 class RewriteRejected(WorkflowError):
     def __init__(self, code: str, message: str, *, category: str, phase: str) -> None:
         super().__init__(message)
@@ -64,18 +123,27 @@ def generate_validated_rewrite(
     submission: Submission,
     source: StructuredSource,
     run_id: str,
-    scripted_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
+    generator: RewriteGenerator,
 ) -> RewriteArtifact:
-    if not isinstance(scripted_outcome, ScriptedRewriteOutcome):
-        raise WorkflowError(f"Unsupported scripted rewrite outcome: {scripted_outcome}")
+    if not generator.generator_id:
+        raise WorkflowError("Rewrite generator must declare an identifier")
     manifest_path = task_directory / "rewrite" / "manifest.json"
-    if manifest_path.exists():
+    commit_path = task_directory / REWRITE_COMMIT_PATH
+    if commit_path.exists():
         return load_rewrite_artifact(
             task_directory, submission.target_id, submission.requirements
         )
 
     source_path = task_directory / "sources" / "article.json"
     source_images = _source_images(source_path)
+    permitted_images = tuple(
+        AgentSourceImage(
+            image["asset_path"],
+            image["asset_sha256"],
+            _read_bytes(task_directory / image["asset_path"]),
+        )
+        for image in source_images
+    )
     resource_records = {
         "policy": _resource_record(POLICY_PATH),
         "default_prompt": _resource_record(DEFAULT_PROMPT_PATH),
@@ -116,7 +184,10 @@ def generate_validated_rewrite(
         rewrite_input_bytes,
     )
 
-    if scripted_outcome is ScriptedRewriteOutcome.GENERATION_FAILURE:
+    if (
+        isinstance(generator, ScriptedAgentGenerator)
+        and generator.outcome is ScriptedRewriteOutcome.GENERATION_FAILURE
+    ):
         rejection = RewriteRejected(
             "scripted_generation_failure",
             "Scripted Agent failed before producing Markdown",
@@ -133,13 +204,13 @@ def generate_validated_rewrite(
         )
         raise rejection
 
-    output = _scripted_agent_generate(
+    output = generator.generate(
         rewrite_input,
         source,
         source_images,
+        permitted_images,
         resource_records,
         _sha256(rewrite_input_bytes),
-        scripted_outcome,
     )
     content = output.content
     content_bytes = content.encode("utf-8")
@@ -169,6 +240,7 @@ def generate_validated_rewrite(
             output.manifest,
             rewrite_input,
             content_bytes,
+            generator.generator_id,
         )
     except (SchemaValidationError, WorkflowError) as error:
         rejection = RewriteRejected(
@@ -197,7 +269,7 @@ def generate_validated_rewrite(
         "manifest_sha256": _sha256(manifest_bytes),
     }
     validate_record("rewrite-commit", commit)
-    write_immutable_bytes(task_directory / REWRITE_COMMIT_PATH, _json_bytes(commit))
+    write_immutable_bytes(commit_path, _json_bytes(commit))
     return load_rewrite_artifact(
         task_directory, submission.target_id, submission.requirements
     )
@@ -278,8 +350,8 @@ def load_rewrite_artifact(
         for path in (task_directory / "rewrite" / "attempts").glob("*/input.json")
         if _sha256(_read_bytes(path)) == input_hash
     ]
-    if len(matching_inputs) != 1:
-        raise WorkflowError("Rewrite artifact generation input is not uniquely anchored")
+    if not matching_inputs:
+        raise WorkflowError("Rewrite artifact generation input is not anchored")
     rewrite_input = load_record("rewrite-input", matching_inputs[0])
     if (
         rewrite_input.get("trusted_controls")
@@ -359,6 +431,7 @@ def _scripted_agent_generate(
     rewrite_input: dict[str, Any],
     source: StructuredSource,
     source_images: list[dict[str, str]],
+    permitted_images: tuple[AgentSourceImage, ...],
     resource_records: dict[str, dict[str, str]],
     input_sha256: str,
     outcome: ScriptedRewriteOutcome,
@@ -406,7 +479,20 @@ def _scripted_agent_generate(
             "allowed_effect": "content_only",
         },
     }
-    if outcome is ScriptedRewriteOutcome.CAPABILITY_VIOLATION:
+    injection_channels_observed = (
+        "file://" in source.body
+        and "touch " in source.body
+        and "二维码" in source.body
+        and "模拟外部响应" in source.body
+        and any(
+            b"IMAGE_INJECTION_PUBLISH" in image.content
+            for image in permitted_images
+        )
+    )
+    if (
+        outcome is ScriptedRewriteOutcome.CAPABILITY_VIOLATION
+        and injection_channels_observed
+    ):
         manifest["trusted_controls"]["target_id"] = "attacker"
     return AgentRewriteOutput(content, manifest)
 
@@ -415,6 +501,7 @@ def _validate_agent_manifest(
     manifest: dict[str, Any],
     rewrite_input: dict[str, Any],
     content_bytes: bytes,
+    expected_generator_id: str,
 ) -> None:
     controls = rewrite_input["trusted_controls"]
     requirements = controls["requirements"]
@@ -434,6 +521,8 @@ def _validate_agent_manifest(
     }
     if manifest.get("trusted_controls") != expected_controls:
         raise WorkflowError("Agent manifest changed trusted controls")
+    if manifest.get("generator") != expected_generator_id:
+        raise WorkflowError("Agent manifest changed its generator identity")
     if manifest.get("content") != expected_content:
         raise WorkflowError("Agent manifest does not describe its Markdown output")
     if manifest.get("source") != rewrite_input["untrusted_source"]:

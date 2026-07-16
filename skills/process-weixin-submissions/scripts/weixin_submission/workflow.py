@@ -14,6 +14,7 @@ from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
 from .rewrite import (
     RewriteRejected,
+    ScriptedAgentGenerator,
     ScriptedRewriteOutcome,
     generate_validated_rewrite,
     load_rewrite_artifact,
@@ -420,7 +421,7 @@ def _process_task(
                 submission,
                 source,
                 run_id,
-                scripted_rewrite_outcome,
+                ScriptedAgentGenerator(scripted_rewrite_outcome),
             )
         except RewriteRejected as error:
             _record_operation_failure(

@@ -43,6 +43,6 @@
         }
       }
     },
-    "adapter": {"type": "string", "const": "fake"}
+    "adapter": {"type": "string"}
   }
 }

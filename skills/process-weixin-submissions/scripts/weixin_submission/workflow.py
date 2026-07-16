@@ -9,8 +9,8 @@ from .capture import (
     load_structured_source,
     rebuild_structured_source,
 )
-from .delivery import deliver_canonical_draft
-from .fake_blog import BlogAdapterError, FakeBlogAdapter
+from .delivery import BlogAdapterError, deliver_canonical_draft
+from .fake_blog import FakeBlogAdapter
 from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
 from .rewrite import (

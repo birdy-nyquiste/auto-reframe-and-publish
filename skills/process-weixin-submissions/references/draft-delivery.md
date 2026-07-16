@@ -4,13 +4,15 @@ The current core adapter is a fake external service used to validate the deliver
 
 ## Capability boundary
 
-`DraftBlogAdapter` exposes exactly three operations:
+`DraftBlogAdapter` exposes exactly three external-effect operations:
 
 - map one opaque publication target to an external target;
 - upload one integrity-checked, content-addressed image;
 - create or recover one idempotent draft.
 
 There is no public publish, delete, user-management, deployment, arbitrary-request, or arbitrary-file capability. A successful Skill run creates a draft only.
+
+Adapter identity and raw-response normalization are also behind this protocol, so fake or future real response shapes never leak into the canonical delivery module. Transport and validation failures use the typed `BlogErrorCategory` vocabulary before they enter task blockers.
 
 ## Generated request
 

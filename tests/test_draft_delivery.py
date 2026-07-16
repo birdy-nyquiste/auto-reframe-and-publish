@@ -152,6 +152,7 @@ class DraftDeliveryTest(unittest.TestCase):
         upload = json.loads(uploads[0].read_text("utf-8"))
         self.assertEqual(upload["asset_id"], expected_asset_id)
         self.assertEqual(upload["sha256"], image_sha256)
+        self.assertEqual(upload["upload_requests"], 1)
         draft = json.loads(
             next((self.fake_blog / "drafts").glob("*.json")).read_text("utf-8")
         )
@@ -406,6 +407,55 @@ class DraftDeliveryTest(unittest.TestCase):
         self.assertEqual(task["blocker"]["error_category"], "invalid_response")
         self.assertIsNone(task["external_draft"])
         self.assertFalse((task_directory / "delivery" / "response.json").exists())
+
+    def test_non_object_response_is_preserved_and_does_not_stop_queue(self) -> None:
+        self.fake_blog.mkdir(parents=True)
+        (self.fake_blog / "control.json").write_text(
+            json.dumps(
+                {"create_draft_responses": [["publish", "file:///private/secret"]]}
+            ),
+            encoding="utf-8",
+        )
+        self.append_submission()
+        self.append_submission()
+
+        result = self.run_intake()
+
+        task_pairs = [
+            (
+                self.repository / "tasks" / task_id,
+                json.loads(
+                    (
+                        self.repository / "tasks" / task_id / "task.json"
+                    ).read_text("utf-8")
+                ),
+            )
+            for task_id in result["task_ids"]
+        ]
+        failed = [pair for pair in task_pairs if pair[1]["blocker"] is not None]
+        completed = [
+            pair
+            for pair in task_pairs
+            if pair[1]["milestone"] == "draft_delivery_confirmed"
+        ]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(len(completed), 1)
+        failed_task, failed_record = failed[0]
+        self.assertEqual(failed_record["blocker"]["error_category"], "invalid_response")
+        raw = json.loads(
+            (
+                failed_task
+                / "delivery"
+                / "attempts"
+                / result["run_id"]
+                / "response-raw.json"
+            ).read_text("utf-8")
+        )
+        self.assertEqual(raw, ["publish", "file:///private/secret"])
+        self.assertEqual(
+            {item["status"] for item in result["task_results"]},
+            {"permanent_failure", "fake_draft_confirmed"},
+        )
 
 
 if __name__ == "__main__":

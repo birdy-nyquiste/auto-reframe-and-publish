@@ -8,6 +8,6 @@
     "draft_id": {"type": "string"},
     "status": {"type": "string", "const": "accepted"},
     "preview_url": {"type": "string"},
-    "adapter": {"type": "string", "const": "fake"}
+    "adapter": {"type": "string"}
   }
 }

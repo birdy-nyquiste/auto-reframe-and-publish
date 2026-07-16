@@ -3,9 +3,9 @@
   "$id": "repository.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["repository_version", "created_at", "validation_scope", "intake"],
+  "required": ["repository_version", "created_at", "validation_scope", "intake", "pending_window"],
   "properties": {
-    "repository_version": {"type": "integer", "const": 1},
+    "repository_version": {"type": "integer", "const": 2},
     "created_at": {"type": "string"},
     "validation_scope": {"type": "string"},
     "intake": {
@@ -19,6 +19,25 @@
             "adapter": {"type": "string", "const": "scripted_chat"},
             "conversation": {"type": "string", "const": "file-transfer-assistant"},
             "last_marker_id": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "pending_window": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adapter", "conversation", "previous_marker_id", "current_marker_id", "messages", "run_id", "task_ids"],
+          "properties": {
+            "adapter": {"type": "string", "const": "scripted_chat"},
+            "conversation": {"type": "string", "const": "file-transfer-assistant"},
+            "previous_marker_id": {"type": "string"},
+            "current_marker_id": {"type": "string"},
+            "messages": {"type": "array", "items": {"type": "object"}},
+            "run_id": {"type": "string"},
+            "task_ids": {"type": "array", "items": {"type": "string"}}
           }
         }
       ]

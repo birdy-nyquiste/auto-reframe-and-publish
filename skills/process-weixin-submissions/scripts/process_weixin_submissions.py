@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from weixin_submission.schema_validation import SchemaValidationError
+from weixin_submission.schema_validation import SchemaValidationError, milestones
 from weixin_submission.storage import WorkflowError, repository_status
 from weixin_submission.writer_lock import acquire_writer_lock
 from weixin_submission.workflow import (
@@ -33,13 +33,7 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--fake-blog-directory", type=Path, required=True)
     run.add_argument(
         "--simulate-interruption-after",
-        choices=(
-            "task_created",
-            "raw_evidence_ready",
-            "structured_source_ready",
-            "rewrite_artifact_ready",
-            "draft_delivery_confirmed",
-        ),
+        choices=milestones(),
     )
 
     status = subparsers.add_parser("status", help="Read task repository status.")

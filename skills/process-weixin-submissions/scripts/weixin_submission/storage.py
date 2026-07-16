@@ -10,7 +10,7 @@ from typing import Any
 from .schema_validation import validate_record
 
 
-REPOSITORY_VERSION = 1
+REPOSITORY_VERSION = 2
 VALIDATION_SCOPE = "ticket_03_durable_workflow"
 
 
@@ -66,6 +66,7 @@ def initialize_repository(repository: Path) -> dict[str, object]:
         "created_at": utc_now(),
         "validation_scope": VALIDATION_SCOPE,
         "intake": None,
+        "pending_window": None,
     }
     validate_record("repository", metadata)
     write_json(metadata_path, metadata)
@@ -77,6 +78,16 @@ def repository_status(repository: Path) -> dict[str, object]:
     validate_record("repository", metadata)
     from .state import load_record
     from .writer_lock import describe_writer_lock
+
+    run_status_counts: dict[str, int] = {}
+    run_ids: set[str] = set()
+    for run_directory in sorted((repository / "runs").iterdir()):
+        if not run_directory.is_dir():
+            continue
+        run = load_record("run", run_directory / "run.json")
+        run_ids.add(str(run["run_id"]))
+        status = str(run["status"])
+        run_status_counts[status] = run_status_counts.get(status, 0) + 1
 
     milestone_counts: dict[str, int] = {}
     blocker_counts: dict[str, int] = {}
@@ -94,6 +105,10 @@ def repository_status(repository: Path) -> dict[str, object]:
                     raise WorkflowError(
                         f"Event {event_path} does not belong to task {task['task_id']}"
                     )
+                if event["run_id"] not in run_ids:
+                    raise WorkflowError(
+                        f"Event {event_path} references missing run {event['run_id']}"
+                    )
         milestone = str(task["milestone"])
         milestone_counts[milestone] = milestone_counts.get(milestone, 0) + 1
         blocker = task["blocker"]
@@ -101,20 +116,11 @@ def repository_status(repository: Path) -> dict[str, object]:
             kind = str(blocker["kind"])
             blocker_counts[kind] = blocker_counts.get(kind, 0) + 1
 
-    run_status_counts: dict[str, int] = {}
-    run_count = 0
-    for run_directory in sorted((repository / "runs").iterdir()):
-        if not run_directory.is_dir():
-            continue
-        run_count += 1
-        run = load_record("run", run_directory / "run.json")
-        status = str(run["status"])
-        run_status_counts[status] = run_status_counts.get(status, 0) + 1
     return {
         "status": "ok",
         "repository_version": metadata["repository_version"],
         "validation_scope": metadata["validation_scope"],
-        "run_count": run_count,
+        "run_count": len(run_ids),
         "task_count": task_count,
         "milestones": milestone_counts,
         "blockers": blocker_counts,

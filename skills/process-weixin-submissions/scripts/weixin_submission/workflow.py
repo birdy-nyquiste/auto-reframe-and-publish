@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .fake_blog import BlogAdapterError, FakeBlogAdapter
 from .protocol import IntakeCandidate, parse_input_window
 from .retry_policy import retry_budget
 from .scripted_chat import capture_next_window, establish_baseline
-from .state import append_task_event, commit_task_milestone, load_record, save_record
+from .state import (
+    append_task_event,
+    commit_task_milestone,
+    commit_task_state,
+    load_record,
+    reconcile_task_projections,
+    save_record,
+)
 from .storage import (
     VALIDATION_SCOPE,
     WorkflowError,
@@ -28,15 +35,8 @@ from .submission import (
 )
 
 
-MILESTONES = (
-    "task_created",
-    "raw_evidence_ready",
-    "structured_source_ready",
-    "rewrite_artifact_ready",
-    "draft_delivery_confirmed",
-)
-
 MISSING_CAPABILITIES = (
+    "v1 tracer repository migration",
     "production retry budgets based on operational evidence",
     "full WeChat text and static-image capture",
     "Windows Computer Use",
@@ -84,25 +84,49 @@ def run_scripted_chat(
     intake = metadata.get("intake")
     if not isinstance(intake, dict) or not isinstance(intake.get("last_marker_id"), str):
         raise WorkflowError("Initialize the scripted chat before running intake")
-    window = capture_next_window(chat_path, intake["last_marker_id"])
-    intake["last_marker_id"] = window.current_marker_id
-    metadata["intake"] = intake
-    metadata["validation_scope"] = VALIDATION_SCOPE
-    save_record("repository", repository / "repository.json", metadata)
-    candidates = parse_input_window(window.messages, window.current_marker_id)
-    result = _run_candidates(
-        repository,
-        candidates,
-        {
+    pending_window = metadata.get("pending_window")
+    if pending_window is None:
+        window = capture_next_window(chat_path, intake["last_marker_id"])
+        candidates = parse_input_window(window.messages, window.current_marker_id)
+        pending_window = {
             "adapter": "scripted_chat",
             "conversation": window.conversation,
             "previous_marker_id": window.previous_marker_id,
             "current_marker_id": window.current_marker_id,
-        },
+            "messages": list(window.messages),
+            "run_id": new_id("run"),
+            "task_ids": [new_id("task") for _candidate in candidates],
+        }
+        metadata["pending_window"] = pending_window
+        metadata["validation_scope"] = VALIDATION_SCOPE
+        save_record("repository", repository / "repository.json", metadata)
+    if not isinstance(pending_window, dict):
+        raise WorkflowError("Repository pending_window is invalid")
+    current_marker_id = str(pending_window["current_marker_id"])
+    messages = pending_window["messages"]
+    candidates = parse_input_window(messages, current_marker_id)
+    task_ids = pending_window["task_ids"]
+    if not isinstance(task_ids, list) or len(task_ids) != len(candidates):
+        raise WorkflowError("Pending input window task IDs do not match its candidates")
+
+    def commit_input_cursor() -> None:
+        intake["last_marker_id"] = current_marker_id
+        metadata["intake"] = intake
+        metadata["pending_window"] = None
+        metadata["validation_scope"] = VALIDATION_SCOPE
+        save_record("repository", repository / "repository.json", metadata)
+
+    result = _run_candidates(
+        repository,
+        candidates,
+        pending_window,
         fake_blog_directory,
         simulate_interruption_after,
+        str(pending_window["run_id"]),
+        [str(task_id) for task_id in task_ids],
+        commit_input_cursor,
     )
-    result["marker_id"] = window.current_marker_id
+    result["marker_id"] = current_marker_id
     return result
 
 
@@ -112,14 +136,46 @@ def _run_candidates(
     input_window: dict[str, object],
     fake_blog_directory: Path,
     simulate_interruption_after: str | None,
+    run_id: str,
+    created_task_ids: list[str],
+    commit_input_cursor: Callable[[], None],
 ) -> dict[str, object]:
-    started_at = utc_now()
-    run_id = new_id("run")
     run_directory = repository / "runs" / run_id
-    created_task_ids = [new_id("task") for _candidate in candidates]
     result_by_task: dict[str, dict[str, object]] = {}
+    run_path = run_directory / "run.json"
+    if run_path.exists():
+        run_record = load_record("run", run_path)
+        if run_record["status"] != "processing":
+            raise WorkflowError(f"Pending input run {run_id} is not processing")
+        if run_record["created_task_ids"] != created_task_ids:
+            raise WorkflowError(f"Pending input run {run_id} has different task IDs")
+    else:
+        run_record = {
+            "schema_version": SCHEMA_VERSION,
+            "run_id": run_id,
+            "operation": "run",
+            "started_at": utc_now(),
+            "completed_at": None,
+            "status": "processing",
+            "input_window": input_window,
+            "created_task_ids": created_task_ids,
+            "attempted_task_ids": [],
+            "recovered_by_run": None,
+        }
+        save_record("run", run_path, run_record)
+    started_at = str(run_record["started_at"])
+    reconcile_task_projections(repository)
+    recovered_run_ids = _recover_processing_runs(repository, run_id)
 
     for task_id, candidate in zip(created_task_ids, candidates):
+        task_directory = repository / "tasks" / task_id
+        task_path = task_directory / "task.json"
+        if task_path.exists() or (task_directory / "events").exists():
+            existing_task = load_record("task", task_path)
+            if existing_task["created_in_run"] != run_id:
+                raise WorkflowError(f"Task {task_id} belongs to another run")
+            result_by_task[task_id] = _result_from_task(existing_task)
+            continue
         submission = candidate.submission
         blocker = (
             None
@@ -144,23 +200,20 @@ def _run_candidates(
             "external_draft": None,
             "retry_generation": 0,
         }
-        task_directory = repository / "tasks" / task_id
-        save_record("task", task_directory / "task.json", task_record)
-        append_task_event(
+        raw_intake = {
+            "schema_version": SCHEMA_VERSION,
+            "window_id": _input_window_id(input_window),
+            "messages": list(candidate.raw_messages),
+        }
+        commit_task_state(
             task_directory,
-            task_id,
+            task_record,
             run_id,
             "milestone_committed",
             milestone="task_created",
+            details={"raw_intake": raw_intake},
         )
-        write_json(
-            task_directory / "raw" / "intake.json",
-            {
-                "schema_version": SCHEMA_VERSION,
-                "window_id": _input_window_id(input_window),
-                "messages": list(candidate.raw_messages),
-            },
-        )
+        write_json(task_directory / "raw" / "intake.json", raw_intake)
         if submission is None:
             result_by_task[task_id] = {
                 "task_id": task_id,
@@ -168,20 +221,7 @@ def _run_candidates(
                 "blocker_reason": candidate.blocker_reason,
             }
 
-    run_record: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
-        "run_id": run_id,
-        "operation": "run",
-        "started_at": started_at,
-        "completed_at": None,
-        "status": "processing",
-        "input_window": input_window,
-        "created_task_ids": created_task_ids,
-        "attempted_task_ids": [],
-        "recovered_by_run": None,
-    }
-    save_record("run", run_directory / "run.json", run_record)
-    recovered_run_ids = _recover_processing_runs(repository, run_id)
+    commit_input_cursor()
 
     try:
         if any(candidate.submission is not None for candidate in candidates):
@@ -190,7 +230,8 @@ def _run_candidates(
         blog = FakeBlogAdapter(fake_blog_directory)
         executable = _load_executable_tasks(repository)
         for task_id, task_record, submission in executable:
-            run_record["attempted_task_ids"].append(task_id)
+            if task_id not in run_record["attempted_task_ids"]:
+                run_record["attempted_task_ids"].append(task_id)
             save_record("run", run_directory / "run.json", run_record)
             delivery_response = _process_task(
                 repository / "tasks" / task_id,
@@ -218,16 +259,13 @@ def _run_candidates(
     except SimulatedInterruption as error:
         run_record["completed_at"] = utc_now()
         run_record["status"] = "interrupted"
-        save_record("run", run_directory / "run.json", run_record)
         write_text(
             run_directory / "report.md",
             _render_interrupted_report(run_record, str(error)),
         )
+        save_record("run", run_directory / "run.json", run_record)
         raise
 
-    run_record["completed_at"] = utc_now()
-    run_record["status"] = "completed"
-    save_record("run", run_directory / "run.json", run_record)
     ordered_result_ids = created_task_ids + [
         task_id
         for task_id in run_record["attempted_task_ids"]
@@ -239,6 +277,9 @@ def _run_candidates(
         report_path,
         _render_report(run_id, input_window, task_results, recovered_run_ids),
     )
+    run_record["completed_at"] = utc_now()
+    run_record["status"] = "completed"
+    save_record("run", run_directory / "run.json", run_record)
     return {
         "status": "completed",
         "run_id": run_id,
@@ -274,6 +315,25 @@ def _load_executable_tasks(
         )
         executable.append((task_directory.name, task_record, submission))
     return executable
+
+
+def _result_from_task(task_record: dict[str, Any]) -> dict[str, object]:
+    external_draft = task_record["external_draft"]
+    if isinstance(external_draft, dict):
+        return {
+            "task_id": str(task_record["task_id"]),
+            "status": "fake_draft_confirmed",
+            "draft_id": str(external_draft["draft_id"]),
+        }
+    blocker = task_record["blocker"]
+    if isinstance(blocker, dict):
+        reason = blocker.get("reason", blocker.get("error_code"))
+        return {
+            "task_id": str(task_record["task_id"]),
+            "status": str(blocker["kind"]),
+            "blocker_reason": str(reason),
+        }
+    return {"task_id": str(task_record["task_id"]), "status": "pending"}
 
 
 def _process_task(
@@ -353,7 +413,6 @@ def _process_task(
             )
             return None
         write_json(task_directory / "delivery" / "response.json", delivery_response)
-        previous_blocker = task_record["blocker"]
         task_record["blocker"] = None
         task_record["external_draft"] = delivery_response
         commit_task_milestone(
@@ -361,14 +420,6 @@ def _process_task(
         )
         _maybe_interrupt(simulate_interruption_after, "draft_delivery_confirmed")
         _finish_attempt(task_directory, task_id, run_id, "deliver_draft")
-        if previous_blocker is not None:
-            append_task_event(
-                task_directory,
-                task_id,
-                run_id,
-                "blocker_changed",
-                details={"from": previous_blocker, "to": None},
-            )
 
     external_draft = task_record["external_draft"]
     if not isinstance(external_draft, dict):
@@ -382,16 +433,6 @@ def _record_delivery_failure(
     run_id: str,
     error: BlogAdapterError,
 ) -> None:
-    task_id = task_record["task_id"]
-    append_task_event(
-        task_directory,
-        task_id,
-        run_id,
-        "attempt_failed",
-        operation="deliver_draft",
-        outcome="failed",
-        details={"error_category": error.category, "error_code": error.code},
-    )
     budget = retry_budget("deliver_draft", error.category)
     previous_blocker = task_record["blocker"]
     if (
@@ -423,17 +464,26 @@ def _record_delivery_failure(
         }
     task_record["blocker"] = blocker
     task_record["updated_at"] = utc_now()
-    save_record("task", task_directory / "task.json", task_record)
-    append_task_event(
+    commit_task_state(
         task_directory,
-        task_id,
+        task_record,
         run_id,
-        "blocker_changed",
-        details={"from": previous_blocker, "to": blocker},
+        "attempt_failed",
+        operation="deliver_draft",
+        outcome="failed",
+        details={
+            "error_category": error.category,
+            "error_code": error.code,
+            "blocker_from": previous_blocker,
+            "blocker_to": blocker,
+        },
     )
 
 
 def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
+    metadata = load_record("repository", repository / "repository.json")
+    if metadata["pending_window"] is not None:
+        raise WorkflowError("Complete the pending input window before retrying a task")
     task_directory = repository / "tasks" / task_id
     task_record = load_record("task", task_directory / "task.json")
     blocker = task_record["blocker"]
@@ -456,6 +506,7 @@ def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
         "recovered_by_run": None,
     }
     save_record("run", run_directory / "run.json", run_record)
+    reconcile_task_projections(repository)
     _recover_processing_runs(repository, run_id)
 
     task_record["retry_generation"] += 1
@@ -470,30 +521,26 @@ def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
     }
     task_record["blocker"] = next_blocker
     task_record["updated_at"] = utc_now()
-    save_record("task", task_directory / "task.json", task_record)
-    append_task_event(
+    commit_task_state(
         task_directory,
-        task_id,
+        task_record,
         run_id,
         "retry_enabled",
         operation=str(blocker["operation"]),
         outcome="enabled",
-        details={"retry_generation": task_record["retry_generation"]},
+        details={
+            "retry_generation": task_record["retry_generation"],
+            "blocker_from": blocker,
+            "blocker_to": next_blocker,
+        },
     )
-    append_task_event(
-        task_directory,
-        task_id,
-        run_id,
-        "blocker_changed",
-        details={"from": blocker, "to": next_blocker},
-    )
-    run_record["completed_at"] = utc_now()
-    run_record["status"] = "completed"
-    save_record("run", run_directory / "run.json", run_record)
     write_text(
         run_directory / "report.md",
         f"# Run {run_id}\n\n- Status: completed\n- Retry enabled: {task_id}\n",
     )
+    run_record["completed_at"] = utc_now()
+    run_record["status"] = "completed"
+    save_record("run", run_directory / "run.json", run_record)
     return {
         "status": "retry_enabled",
         "run_id": run_id,
@@ -596,11 +643,11 @@ def _recover_processing_runs(repository: Path, current_run_id: str) -> list[str]
         run_record["status"] = "interrupted"
         run_record["completed_at"] = utc_now()
         run_record["recovered_by_run"] = current_run_id
-        save_record("run", run_path, run_record)
         write_text(
             run_directory / "report.md",
             _render_recovered_report(run_record),
         )
+        save_record("run", run_path, run_record)
         recovered.append(str(run_record["run_id"]))
     return recovered
 

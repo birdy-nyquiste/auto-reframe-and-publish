@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import subprocess
 import sys
 import tempfile
@@ -148,6 +148,15 @@ class DurableWorkflowTest(unittest.TestCase):
             [event["sequence"] for event in events],
             list(range(1, len(events) + 1)),
         )
+        milestone_events = [
+            event for event in events if event["type"] == "milestone_committed"
+        ]
+        self.assertTrue(
+            all(
+                event["state_after"]["milestone"] == event["milestone"]
+                for event in milestone_events
+            )
+        )
 
     def assert_next_run_resumes_after(self, milestone: str) -> None:
         self.append_submission("author-recovery")
@@ -173,7 +182,10 @@ class DurableWorkflowTest(unittest.TestCase):
             == "interrupted"
         ]
         self.assertEqual(len(interrupted_runs), 1)
-        self.assertIn("Status: interrupted", (interrupted_runs[0] / "report.md").read_text("utf-8"))
+        self.assertIn(
+            "Status: interrupted",
+            (interrupted_runs[0] / "report.md").read_text("utf-8"),
+        )
         task_directories = list((self.repository / "tasks").iterdir())
         self.assertEqual(len(task_directories), 1)
         task_directory = task_directories[0]
@@ -237,8 +249,17 @@ class DurableWorkflowTest(unittest.TestCase):
         self.assertEqual(second_task["blocker"]["kind"], "retry_exhausted")
         self.assertEqual(second_task["blocker"]["attempts_used"], 2)
 
+        # Emulate a crash after the authoritative failure event but before its
+        # task.json projection was replaced.
+        task_path.write_text(
+            json.dumps(first_task, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
         skipped_run = self.run_intake()
         self.assertNotIn(task_id, skipped_run["attempted_task_ids"])
+        projected_exhausted = json.loads(task_path.read_text("utf-8"))
+        self.assertEqual(projected_exhausted["blocker"]["kind"], "retry_exhausted")
 
         enabled = run_cli(
             "retry",
@@ -254,6 +275,12 @@ class DurableWorkflowTest(unittest.TestCase):
         self.assertEqual(enabled_task["blocker"]["kind"], "retry_pending")
         self.assertEqual(enabled_task["blocker"]["attempts_used"], 0)
         self.assertEqual(enabled_task["retry_generation"], 1)
+
+        # Emulate the same projection gap after the explicit retry event.
+        task_path.write_text(
+            json.dumps(second_task, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
         completed_run = self.run_intake()
         completed_task = json.loads(task_path.read_text("utf-8"))
@@ -319,11 +346,16 @@ class DurableWorkflowTest(unittest.TestCase):
         self.assertEqual(refused.returncode, 2)
         self.assertIn("writer lock is already held", refused.stderr)
         self.assertTrue(lock_path.exists())
-        self.assertEqual(json.loads(lock_path.read_text("utf-8"))["owner_id"], "stale-fixture-owner")
+        self.assertEqual(
+            json.loads(lock_path.read_text("utf-8"))["owner_id"],
+            "stale-fixture-owner",
+        )
 
     def repository_snapshot(self) -> dict[str, str]:
         return {
-            str(path.relative_to(self.repository)): hashlib.sha256(path.read_bytes()).hexdigest()
+            str(path.relative_to(self.repository)): hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
             for path in sorted(self.repository.rglob("*"))
             if path.is_file()
         }
@@ -367,6 +399,75 @@ class DurableWorkflowTest(unittest.TestCase):
         self.assertEqual(illegal_run.returncode, 2)
         self.assertIn("completed_at must be string", illegal_run.stderr)
 
+    def test_schema_rejects_contradictory_retry_counts_and_generations(self) -> None:
+        self.append_submission("author-retry-schema")
+        result = self.run_intake()
+        task_path = self.repository / "tasks" / result["task_ids"][0] / "task.json"
+        task = json.loads(task_path.read_text("utf-8"))
+        task["milestone"] = "rewrite_artifact_ready"
+        task["external_draft"] = None
+        task["blocker"] = {
+            "kind": "retry_pending",
+            "operation": "deliver_draft",
+            "error_category": "transient",
+            "error_code": "fixture",
+            "attempts_used": 2,
+            "retry_budget": 2,
+            "retry_generation": 0,
+        }
+        task_path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
+
+        pending_at_budget = run_cli("status", "--repository", self.repository)
+        self.assertEqual(pending_at_budget.returncode, 2)
+        self.assertIn("must be below retry_budget", pending_at_budget.stderr)
+
+        task["blocker"]["kind"] = "retry_exhausted"
+        task["blocker"]["attempts_used"] = 1
+        task_path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
+        exhausted_below_budget = run_cli("status", "--repository", self.repository)
+        self.assertEqual(exhausted_below_budget.returncode, 2)
+        self.assertIn("must equal retry_budget", exhausted_below_budget.stderr)
+
+        task["blocker"]["attempts_used"] = 2
+        task["blocker"]["retry_generation"] = 1
+        task_path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
+        mismatched_generation = run_cli("status", "--repository", self.repository)
+        self.assertEqual(mismatched_generation.returncode, 2)
+        self.assertIn("must match task retry_generation", mismatched_generation.stderr)
+
+    def test_next_run_rebuilds_task_and_raw_projections_from_committed_events(self) -> None:
+        self.append_submission("author-wal-recovery")
+        interrupted = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--scripted-chat",
+            self.chat,
+            "--fake-blog-directory",
+            self.fake_blog,
+            "--simulate-interruption-after",
+            "raw_evidence_ready",
+        )
+        self.assertEqual(interrupted.returncode, 2)
+        task_directory = next((self.repository / "tasks").iterdir())
+        (task_directory / "task.json").unlink()
+        (task_directory / "raw" / "intake.json").unlink()
+        before_status = self.repository_snapshot()
+
+        status = run_cli("status", "--repository", self.repository)
+
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertEqual(self.repository_snapshot(), before_status)
+        self.assertFalse((task_directory / "task.json").exists())
+        self.assertFalse((task_directory / "raw" / "intake.json").exists())
+
+        recovered = self.run_intake()
+
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        self.assertEqual(task["milestone"], "draft_delivery_confirmed")
+        self.assertTrue((task_directory / "raw" / "intake.json").exists())
+        self.assertIn(task_directory.name, recovered["attempted_task_ids"])
+
     def test_next_run_recovers_a_processing_run_left_by_a_crashed_process(self) -> None:
         self.append_submission("author-crash-recovery")
         first = self.run_intake()
@@ -389,6 +490,163 @@ class DurableWorkflowTest(unittest.TestCase):
         self.assertIn(f"Recovered by run: {recovered['run_id']}", previous_report)
         current_report = Path(recovered["report_path"]).read_text("utf-8")
         self.assertIn(f"Recovered runs: {first['run_id']}", current_report)
+
+    def test_pending_window_reuses_durable_run_and_task_ids_before_cursor_advance(
+        self,
+    ) -> None:
+        self.append_submission("author-pending-window")
+        chat = json.loads(self.chat.read_text("utf-8"))
+        marker_id = "marker-crash-window"
+        chat["messages"].append(
+            {
+                "message_id": marker_id,
+                "kind": "batch_marker",
+                "marker_id": marker_id,
+                "text": f"#批次 {marker_id}",
+                "sent_at": "2026-07-15T00:00:00+00:00",
+            }
+        )
+        self.chat.write_text(
+            json.dumps(chat, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        metadata_path = self.repository / "repository.json"
+        metadata = json.loads(metadata_path.read_text("utf-8"))
+        previous_marker = metadata["intake"]["last_marker_id"]
+        metadata["pending_window"] = {
+            "adapter": "scripted_chat",
+            "conversation": "file-transfer-assistant",
+            "previous_marker_id": previous_marker,
+            "current_marker_id": marker_id,
+            "messages": chat["messages"][-3:-1],
+            "run_id": "run-pending-fixture",
+            "task_ids": ["task-pending-fixture"],
+        }
+        metadata_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_intake()
+
+        updated_metadata = json.loads(metadata_path.read_text("utf-8"))
+        self.assertEqual(result["run_id"], "run-pending-fixture")
+        self.assertEqual(result["task_ids"], ["task-pending-fixture"])
+        self.assertEqual(result["marker_id"], marker_id)
+        self.assertEqual(updated_metadata["intake"]["last_marker_id"], marker_id)
+        self.assertIsNone(updated_metadata["pending_window"])
+
+    def test_run_recovers_a_marker_sent_before_its_window_was_journaled(self) -> None:
+        self.append_submission("author-orphan-marker")
+        chat = json.loads(self.chat.read_text("utf-8"))
+        marker_id = "marker-before-journal-crash"
+        chat["messages"].append(
+            {
+                "message_id": marker_id,
+                "kind": "batch_marker",
+                "marker_id": marker_id,
+                "text": f"#批次 {marker_id}",
+                "sent_at": "2026-07-15T00:00:00+00:00",
+            }
+        )
+        self.chat.write_text(
+            json.dumps(chat, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        marker_count_before = sum(
+            message.get("kind") == "batch_marker" for message in chat["messages"]
+        )
+
+        result = self.run_intake()
+
+        updated_chat = json.loads(self.chat.read_text("utf-8"))
+        marker_count_after = sum(
+            message.get("kind") == "batch_marker"
+            for message in updated_chat["messages"]
+        )
+        self.assertEqual(result["marker_id"], marker_id)
+        self.assertEqual(marker_count_after, marker_count_before)
+        self.assertEqual(result["task_results"][0]["status"], "fake_draft_confirmed")
+
+    def test_event_chain_rejects_a_schema_valid_milestone_regression(self) -> None:
+        self.append_submission("author-event-chain")
+        result = self.run_intake()
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        task["milestone"] = "rewrite_artifact_ready"
+        task["external_draft"] = None
+        event_paths = sorted((task_directory / "events").glob("*.json"))
+        sequence = len(event_paths) + 1
+        event_id = "event-regression-fixture"
+        regression = {
+            "schema_version": 2,
+            "event_id": event_id,
+            "sequence": sequence,
+            "task_id": task["task_id"],
+            "run_id": result["run_id"],
+            "occurred_at": "2026-07-15T00:00:00+00:00",
+            "type": "milestone_committed",
+            "milestone": "rewrite_artifact_ready",
+            "operation": None,
+            "outcome": None,
+            "details": {},
+            "state_after": task,
+        }
+        regression_path = task_directory / "events" / f"{sequence:06d}-{event_id}.json"
+        regression_path.write_text(
+            json.dumps(regression, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        status = run_cli("status", "--repository", self.repository)
+
+        self.assertEqual(status.returncode, 2)
+        self.assertIn("Illegal task event transition", status.stderr)
+
+    def test_event_chain_rejects_retry_enabled_from_permanent_failure(self) -> None:
+        self.write_blog_failures(["permanent"])
+        self.append_submission("author-illegal-retry-event")
+        result = self.run_intake()
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        previous_blocker = task["blocker"]
+        task["retry_generation"] = 1
+        task["blocker"] = {
+            "kind": "retry_pending",
+            "operation": "deliver_draft",
+            "error_category": "permanent",
+            "error_code": previous_blocker["error_code"],
+            "attempts_used": 0,
+            "retry_budget": 2,
+            "retry_generation": 1,
+        }
+        event_paths = sorted((task_directory / "events").glob("*.json"))
+        sequence = len(event_paths) + 1
+        event_id = "event-illegal-retry-fixture"
+        illegal_retry = {
+            "schema_version": 2,
+            "event_id": event_id,
+            "sequence": sequence,
+            "task_id": task["task_id"],
+            "run_id": result["run_id"],
+            "occurred_at": "2026-07-15T00:00:00+00:00",
+            "type": "retry_enabled",
+            "milestone": None,
+            "operation": "deliver_draft",
+            "outcome": "enabled",
+            "details": {},
+            "state_after": task,
+        }
+        event_path = task_directory / "events" / f"{sequence:06d}-{event_id}.json"
+        event_path.write_text(
+            json.dumps(illegal_retry, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        status = run_cli("status", "--repository", self.repository)
+
+        self.assertEqual(status.returncode, 2)
+        self.assertIn(
+            "retry_enabled requires retry_exhausted -> retry_pending", status.stderr
+        )
 
 
 if __name__ == "__main__":

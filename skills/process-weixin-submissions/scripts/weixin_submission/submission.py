@@ -6,7 +6,7 @@ from pathlib import Path
 from .storage import WorkflowError, read_json
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)

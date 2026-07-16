@@ -34,6 +34,12 @@ def validate_record(record_type: str, value: dict[str, Any]) -> None:
         _validate_discriminated_invariants(value, schema, "status", "x-status-invariants")
     if record_type == "event":
         _validate_discriminated_invariants(value, schema, "type", "x-type-invariants")
+        milestone = value.get("milestone")
+        if isinstance(milestone, str) and milestone not in milestones():
+            raise SchemaValidationError(f"event: unknown milestone {milestone!r}")
+        state_after = value.get("state_after")
+        if isinstance(state_after, dict):
+            validate_record("task", state_after)
 
 
 def allowed_transitions() -> dict[str, tuple[str, ...]]:
@@ -48,6 +54,20 @@ def allowed_transitions() -> dict[str, tuple[str, ...]]:
             raise SchemaValidationError("Task transition metadata is invalid")
         result[current] = tuple(following)
     return result
+
+
+def milestones() -> tuple[str, ...]:
+    task_schema = load_schema("task")
+    properties = task_schema.get("properties")
+    if not isinstance(properties, dict):
+        raise SchemaValidationError("Task schema is missing properties")
+    milestone_schema = properties.get("milestone")
+    if not isinstance(milestone_schema, dict):
+        raise SchemaValidationError("Task schema is missing milestone")
+    values = milestone_schema.get("enum")
+    if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+        raise SchemaValidationError("Task milestone enum is invalid")
+    return tuple(values)
 
 
 def _validate(value: Any, schema: dict[str, Any], location: str) -> None:
@@ -148,6 +168,31 @@ def _validate_task_invariants(value: dict[str, Any], schema: dict[str, Any]) -> 
             f"task: external_draft must be an object at milestone {milestone!r}"
         )
 
+    if isinstance(blocker, dict) and blocker.get("kind") in (
+        "retry_pending",
+        "retry_exhausted",
+    ):
+        if blocker["retry_generation"] != value.get("retry_generation"):
+            raise SchemaValidationError(
+                "task: blocker retry_generation must match task retry_generation"
+            )
+        attempts_used = blocker["attempts_used"]
+        retry_budget = blocker["retry_budget"]
+        retry_invariants = schema.get("x-retry-blocker-invariants")
+        if not isinstance(retry_invariants, dict):
+            raise SchemaValidationError(
+                "Task schema is missing x-retry-blocker-invariants"
+            )
+        rule = retry_invariants.get(blocker["kind"])
+        if rule == "attempts_used_below_budget" and attempts_used >= retry_budget:
+            raise SchemaValidationError(
+                "task: retry_pending attempts_used must be below retry_budget"
+            )
+        if rule == "attempts_used_equals_budget" and attempts_used != retry_budget:
+            raise SchemaValidationError(
+                "task: retry_exhausted attempts_used must equal retry_budget"
+            )
+
 
 def _validate_discriminated_invariants(
     value: dict[str, Any],
@@ -168,11 +213,13 @@ def _validate_discriminated_invariants(
         actual = value.get(field)
         if expected == "any":
             continue
-        if expected in ("null", "string") and not _matches_type(actual, expected):
+        if expected in ("null", "string", "object") and not _matches_type(
+            actual, expected
+        ):
             raise SchemaValidationError(
                 f"{discriminator} {discriminator_value!r}: {field} must be {expected}"
             )
-        if expected not in ("any", "null", "string") and actual != expected:
+        if expected not in ("any", "null", "string", "object") and actual != expected:
             raise SchemaValidationError(
                 f"{discriminator} {discriminator_value!r}: {field} must be {expected!r}"
             )

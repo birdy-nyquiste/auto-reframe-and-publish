@@ -54,12 +54,33 @@ def establish_baseline(path: Path) -> tuple[str, str]:
 
 def capture_next_window(path: Path, previous_marker_id: str) -> InputWindow:
     existing_chat = _read_chat(path)
-    if not any(
-        message.get("kind") == "batch_marker"
+    existing_messages = existing_chat["messages"]
+    previous_positions = [
+        index
+        for index, message in enumerate(existing_messages)
+        if message.get("kind") == "batch_marker"
         and message.get("marker_id") == previous_marker_id
-        for message in existing_chat["messages"]
-    ):
+    ]
+    if not previous_positions:
         raise WorkflowError("The repository baseline marker is missing from scripted chat")
+    previous_index = previous_positions[-1]
+    orphaned_markers = [
+        (index, str(message.get("marker_id")))
+        for index, message in enumerate(
+            existing_messages[previous_index + 1 :], start=previous_index + 1
+        )
+        if message.get("kind") == "batch_marker"
+        and isinstance(message.get("marker_id"), str)
+    ]
+    if orphaned_markers:
+        current_index, current_marker_id = orphaned_markers[0]
+        return InputWindow(
+            conversation=str(existing_chat["conversation"]),
+            previous_marker_id=previous_marker_id,
+            current_marker_id=current_marker_id,
+            messages=tuple(existing_messages[previous_index + 1 : current_index]),
+        )
+
     current_marker_id, chat = _send_marker(path)
     messages = chat["messages"]
     marker_positions = {
@@ -71,7 +92,9 @@ def capture_next_window(path: Path, previous_marker_id: str) -> InputWindow:
         previous_index = marker_positions[previous_marker_id]
         current_index = marker_positions[current_marker_id]
     except KeyError as error:
-        raise WorkflowError("The repository baseline marker is missing from scripted chat") from error
+        raise WorkflowError(
+            "The repository baseline marker is missing from scripted chat"
+        ) from error
     if previous_index >= current_index:
         raise WorkflowError("Scripted chat markers are out of order")
     window_messages = messages[previous_index + 1 : current_index]

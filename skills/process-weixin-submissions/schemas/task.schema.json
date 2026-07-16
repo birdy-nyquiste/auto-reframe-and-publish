@@ -18,7 +18,7 @@
     "retry_generation"
   ],
   "properties": {
-    "schema_version": {"type": "integer", "const": 1},
+    "schema_version": {"type": "integer", "const": 2},
     "task_id": {"type": "string"},
     "created_in_run": {"type": "string"},
     "created_at": {"type": "string"},
@@ -53,7 +53,21 @@
           "additionalProperties": false,
           "required": ["kind", "operation", "error_category", "error_code", "attempts_used", "retry_budget", "retry_generation"],
           "properties": {
-            "kind": {"type": "string", "enum": ["retry_pending", "retry_exhausted"]},
+            "kind": {"type": "string", "const": "retry_pending"},
+            "operation": {"type": "string"},
+            "error_category": {"type": "string"},
+            "error_code": {"type": "string"},
+            "attempts_used": {"type": "integer", "minimum": 0},
+            "retry_budget": {"type": "integer", "minimum": 1},
+            "retry_generation": {"type": "integer", "minimum": 0}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operation", "error_category", "error_code", "attempts_used", "retry_budget", "retry_generation"],
+          "properties": {
+            "kind": {"type": "string", "const": "retry_exhausted"},
             "operation": {"type": "string"},
             "error_category": {"type": "string"},
             "error_code": {"type": "string"},
@@ -128,5 +142,9 @@
       "allowed_blockers": ["none"],
       "external_draft": "object"
     }
+  },
+  "x-retry-blocker-invariants": {
+    "retry_pending": "attempts_used_below_budget",
+    "retry_exhausted": "attempts_used_equals_budget"
   }
 }

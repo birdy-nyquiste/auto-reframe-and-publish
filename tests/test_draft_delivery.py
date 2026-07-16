@@ -378,6 +378,35 @@ class DraftDeliveryTest(unittest.TestCase):
         )
         self.assertEqual(raw["state"], "rejected")
 
+    def test_empty_external_draft_identifier_is_not_completion(self) -> None:
+        self.fake_blog.mkdir(parents=True)
+        (self.fake_blog / "control.json").write_text(
+            json.dumps(
+                {
+                    "create_draft_responses": [
+                        {
+                            "draft_ref": "",
+                            "state": "draft_accepted",
+                            "preview": "https://blog.example.test/missing-id",
+                            "adapter": "fake",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.append_submission()
+
+        result = self.run_intake()
+
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        self.assertEqual(result["task_results"][0]["status"], "permanent_failure")
+        self.assertEqual(task["milestone"], "rewrite_artifact_ready")
+        self.assertEqual(task["blocker"]["error_category"], "invalid_response")
+        self.assertIsNone(task["external_draft"])
+        self.assertFalse((task_directory / "delivery" / "response.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

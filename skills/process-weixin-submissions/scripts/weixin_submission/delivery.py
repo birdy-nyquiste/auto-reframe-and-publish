@@ -103,6 +103,11 @@ def deliver_canonical_draft(
         raise rejected_error
     try:
         validate_record("fake-blog-response", raw_response)
+        draft_ref = raw_response.get("draft_ref")
+        if not isinstance(draft_ref, str) or not draft_ref.strip():
+            raise SchemaValidationError(
+                "fake-blog-response.draft_ref must be non-empty"
+            )
         preview = raw_response.get("preview")
         if not isinstance(preview, str) or not preview.startswith("https://"):
             raise SchemaValidationError("fake-blog-response.preview must use https")
@@ -122,7 +127,7 @@ def deliver_canonical_draft(
         )
         raise adapter_error from error
     normalized: dict[str, Any] = {
-        "draft_id": raw_response["draft_ref"],
+        "draft_id": draft_ref,
         "status": "accepted",
         "preview_url": raw_response["preview"],
         "adapter": raw_response["adapter"],

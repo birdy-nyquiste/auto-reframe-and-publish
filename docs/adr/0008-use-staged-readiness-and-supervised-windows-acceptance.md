@@ -1,5 +1,6 @@
 ---
 status: accepted
+amended-by: 0009
 ---
 
 # 使用分级就绪与受监督 Windows 验收

@@ -4,7 +4,9 @@
 
 **Blocked by:** 08 — 验证 Windows Computer Use 实机链路; 09 — 接入正式改写规范与默认提示词; 10 — 适配真实 Blog API
 
-**Status:** ready-for-agent
+**Status:** needs-triage
+
+> ADR-0009 已改变最终交付和批准模型。本票据需要在 Ticket 10 重写后同步修订，不能继续以 Blog 草稿和后台批准作为验收目标。
 
 - [ ] 在固定 Windows 采集主机上，从真实收件会话中的有效投稿创建真实 Blog 发布草稿，且该草稿等待 Blog 管理员人工批准而不会自动公开。
 - [ ] 验收使用明确支持的 Codex 或 Claude Code 运行环境，并验证 canonical Skill 的安装、发现和四个操作入口。

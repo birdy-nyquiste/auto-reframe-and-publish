@@ -1,5 +1,6 @@
 ---
 status: accepted
+amended-by: 0009
 ---
 
 # 使用持久里程碑和类型化阻塞

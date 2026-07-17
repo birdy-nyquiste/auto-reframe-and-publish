@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: superseded
+superseded-by: 0009
 ---
 
 # 将 Blog 视为外部草稿服务

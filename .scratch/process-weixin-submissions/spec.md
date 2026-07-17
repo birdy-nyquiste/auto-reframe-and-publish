@@ -1,6 +1,8 @@
 # Process Weixin Submissions
 
-Status: ready-for-agent
+Status: needs-triage
+
+> 发布相关设计已被 [ADR-0009](../../docs/adr/0009-separate-content-work-from-opt-in-publication.md) 取代：投稿任务与发布任务将分离，`run` 默认不发布，只有操作人本次明确选择自动发布才调用即时公开接口。采集和改写要求仍然有效；在继续发布实现前必须修订本 spec 及相关 tickets。
 
 ## Problem Statement
 

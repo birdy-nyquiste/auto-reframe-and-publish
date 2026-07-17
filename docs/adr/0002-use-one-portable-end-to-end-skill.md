@@ -1,5 +1,6 @@
 ---
 status: accepted
+amended-by: 0009
 ---
 
 # 使用一个可移植的端到端 Skill

@@ -1,5 +1,6 @@
 ---
 status: accepted
+amended-by: 0009
 ---
 
 # 使用文件型运行与任务库

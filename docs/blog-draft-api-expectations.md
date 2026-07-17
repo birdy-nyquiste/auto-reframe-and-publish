@@ -1,6 +1,8 @@
 # Blog 草稿 API 预期契约（讨论稿）
 
-> 本文是微信投稿自动化项目对 Blog API 的集成预期，用于帮助双方讨论接口边界。它不是正式接口文档，不规定最终 URL、字段名、认证方案或资源模型；正式实现以 Blog 团队后续确认的 OpenAPI 和环境说明为准。
+> 状态：已被 [ADR-0009](adr/0009-separate-content-work-from-opt-in-publication.md) 取代，仅作为早期讨论记录保留。当前观察到的外部接口以 [LSForum Blog 外部接口参考](external/lsforum-blog-api-reference.md) 为仓库内参考。
+>
+> 本文原本是微信投稿自动化项目对草稿 API 的集成预期，不是正式接口文档，也不代表当前采用的公开发布流程。
 
 ## 集成目标
 

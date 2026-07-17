@@ -1,4 +1,4 @@
 interface:
   display_name: "处理微信投稿"
-  short_description: "将微信公众号投稿可靠转换为可审计的 Blog 发布草稿"
+  short_description: "将微信公众号投稿转换为可审计改写产物，并按明确选择发布"
   default_prompt: "Use $process-weixin-submissions to process the next marker-delimited scripted WeChat intake window."

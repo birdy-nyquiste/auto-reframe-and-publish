@@ -1,8 +1,8 @@
 # 本地任务库目录
 
-本地任务库独立于 Skill 和 Git 仓库。`runs/` 保存一次 Agent 执行的审计记录，`tasks/` 保存跨多次运行持续存在的投稿任务；两者通过 ID 引用，不互相嵌套或复制数据。
+本地任务库独立于 Skill 和 Git 仓库。`runs/` 保存一次 Agent 执行的审计记录，`tasks/` 保存投稿与改写任务，`publications/` 保存独立的公开发布任务；三者通过 ID 引用，不互相嵌套或复制数据。
 
-当前持久库版本为 v2；v1 是持久事件日志落地前的 tracer 格式，不与 v2 混读。
+当前持久库版本为 v3；旧版本不与 v3 混读，迁移尚未实现。
 
 ```text
 weixin-blog-publish-data/
@@ -46,27 +46,37 @@ weixin-blog-publish-data/
 │   │   │           ├── candidate.md     # 生成成功或验证失败时存在
 │   │   │           ├── candidate-manifest.json
 │   │   │           └── failure.json     # 生成或验证失败时存在
-│   │   └── delivery/
-│   │       ├── request.json
-│   │       ├── response-raw.json
-│   │       ├── response.json
-│   │       └── attempts/
-│   │           └── <run_id>/
-│   │               ├── request.json
-│   │               ├── response-raw.json
-│   │               └── error.json
+│   │
 │   └── task_01JXYZ.../
+│       └── ...
+├── publications/
+│   ├── publication_01JABC.../
+│   │   ├── publication.json
+│   │   ├── events/
+│   │   │   ├── 000001-event_....json
+│   │   │   └── 000002-event_....json
+│   │   ├── request.json               # 请求生成成功时存在
+│   │   ├── response-raw.json          # 确认成功时存在
+│   │   ├── response.json              # 标准化公开结果
+│   │   └── attempts/
+│   │       └── <run_id>/
+│   │           ├── request.json
+│   │           ├── response-raw.json
+│   │           └── error.json
+│   └── publication_01JXYZ.../
 │       └── ...
 ```
 
-这是当前脚本化采集适配器实际写出的目录。媒体文件采用 SHA-256 内容寻址且不依赖扩展名；MIME 类型、文章内出现顺序、采集方法、降级信息和哈希都保存在 `manifest.json`。相同字节只保存一次，但每次文章内出现仍有独立清单项。真实 Windows Computer Use 采集适配器尚未实现，但不会改变 `runs/` 与 `tasks/` 的同级关系。
+这是当前脚本化适配器实际写出的目录。媒体文件采用 SHA-256 内容寻址且不依赖扩展名；MIME 类型、文章内出现顺序、采集方法、降级信息和哈希都保存在 `manifest.json`。相同字节只保存一次，但每次文章内出现仍有独立清单项。真实 Windows Computer Use 采集适配器尚未实现，但不会改变三个聚合的同级关系。
 
 ## Relationships
 
 - `run.json` records the tasks created and attempted during that run.
+- `run.json` also records the trusted publication selection and publication IDs created and attempted during that run.
 - `task.json` records only the run that originally created the task.
 - Every task event and attempt is one append-only JSON file and records the run in which it occurred. State-changing events carry the validated post-commit task state and form the atomic write-ahead record; `task.json` is reconciled from them after interruption.
 - A task's complete run history is derived from `events/`; it is not duplicated in the task snapshot.
+- A publication references exactly one task and its immutable rewrite commit. Publication progress, blockers and external results never mutate task state.
 - An input window belongs to a normal `run` and is recorded inside `run.json`; it is not a separate directory.
 - Before its task registrations finish, the same complete window and its fixed run/task IDs live in `repository.json.pending_window`; advancing the marker cursor and clearing that journal is one atomic metadata replacement.
 
@@ -79,9 +89,10 @@ weixin-blog-publish-data/
 - `sources/article.json` is rebuildable from `raw/capture/manifest.json` and hash-verified evidence.
 - A validated rewrite artifact is immutable after it is committed; `rewrite/commit.json` independently anchors the exact manifest bytes.
 - Rewrite attempts explicitly separate trusted task controls from hash-addressed untrusted sources. The Agent output pair remains under `rewrite/attempts/<run_id>/`; deterministic validation commits the exact pair. Failed generations or validations never occupy the committed artifact paths.
-- The committed rewrite manifest records content, source, image, policy, prompt and Schema hashes. Before delivery, validation checks its commit anchor and every transitive input as a complete attempt. It contains no Blog request or response state.
-- `delivery/request.json` is a Schema-validated, read-only projection regenerated from the rewrite artifact and adapter target mapping. A conflicting existing file is rejected rather than overwritten.
-- Delivery attempts retain the exact derived request and either untrusted raw response or typed error evidence. Only a validated accepted response is copied to canonical `response-raw.json`, normalized into `response.json`, and committed into task state.
+- The committed rewrite manifest records content, source, image, policy, prompt and Schema hashes. It contains no Blog request, response or publication state.
+- `publications/<id>/request.json` is a Schema-validated, read-only projection from one committed rewrite and adapter target mapping. A conflicting existing file is rejected rather than overwritten.
+- Publication attempts retain the exact request and either untrusted raw response or typed error evidence. Only a validated public result is copied to canonical response files and committed into publication state.
+- Local images without stable public URLs block publication before request generation; they are never silently removed.
 - `report.md` is regenerated from the run record and event history.
 - Atomic writes use same-directory temporary files that disappear after replacement.
 - `writer.lock` applies to every mutable operation. Status reports it but never deletes or replaces it, even when it appears stale.

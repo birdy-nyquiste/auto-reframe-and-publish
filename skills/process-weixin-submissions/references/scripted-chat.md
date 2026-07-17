@@ -44,9 +44,10 @@ Run one input window:
 python scripts/process_weixin_submissions.py run \
   --repository <absolute-task-repository-path> \
   --scripted-chat <absolute-scripted-chat-path> \
-  --scripted-clipboard <absolute-scripted-clipboard-path> \
-  --fake-blog-directory <absolute-fake-blog-path>
+  --scripted-clipboard <absolute-scripted-clipboard-path>
 ```
+
+The omitted publication selection is `none`. For an explicitly authorized validation-only automatic publication, add `--publication auto --fake-blog-directory <absolute-fake-blog-path>`. For LSForum, add `--publication auto --blog-config <absolute-non-secret-config-path>` instead. Never supply `auto` unless the operator requested public publication for this run.
 
 ## Submission messages
 

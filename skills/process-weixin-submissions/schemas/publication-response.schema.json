@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "publication-response.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["external_id", "status", "public_url", "slug", "adapter"],
+  "properties": {
+    "external_id": {"type": "string"},
+    "status": {"type": "string", "const": "published"},
+    "public_url": {"type": "string"},
+    "slug": {"type": "string"},
+    "adapter": {"type": "string"}
+  }
+}

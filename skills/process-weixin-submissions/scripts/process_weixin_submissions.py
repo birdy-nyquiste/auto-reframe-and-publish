@@ -24,7 +24,9 @@ def create_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="operation", required=True)
 
-    initialize = subparsers.add_parser("initialize", help="Initialize a task repository.")
+    initialize = subparsers.add_parser(
+        "initialize", help="Initialize a task repository."
+    )
     initialize.add_argument("--repository", type=Path, required=True)
     initialize.add_argument("--scripted-chat", type=Path, required=True)
     initialize.add_argument("--scripted-clipboard", type=Path)
@@ -33,7 +35,23 @@ def create_parser() -> argparse.ArgumentParser:
     run.add_argument("--repository", type=Path, required=True)
     run.add_argument("--scripted-chat", type=Path, required=True)
     run.add_argument("--scripted-clipboard", type=Path)
-    run.add_argument("--fake-blog-directory", type=Path, required=True)
+    run.add_argument(
+        "--publication",
+        choices=("none", "auto"),
+        default="none",
+        help="Public publication is opt-in for this run; omission means none.",
+    )
+    blog = run.add_mutually_exclusive_group()
+    blog.add_argument(
+        "--fake-blog-directory",
+        type=Path,
+        help="Validation-only fake Blog service used when publication is auto.",
+    )
+    blog.add_argument(
+        "--blog-config",
+        type=Path,
+        help="Non-secret LSForum adapter configuration used when publication is auto.",
+    )
     run.add_argument(
         "--scripted-rewrite-outcome",
         type=ScriptedRewriteOutcome,
@@ -69,15 +87,15 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
             return 0, run_scripted_chat(
                 arguments.repository,
                 arguments.scripted_chat,
+                arguments.publication,
                 arguments.fake_blog_directory,
+                arguments.blog_config,
                 arguments.simulate_interruption_after,
                 arguments.scripted_rewrite_outcome,
                 arguments.scripted_clipboard,
             )
     if arguments.operation == "status":
-        return 0, repository_status(
-            arguments.repository, arguments.disk_warning_bytes
-        )
+        return 0, repository_status(arguments.repository, arguments.disk_warning_bytes)
     if arguments.operation == "retry":
         with acquire_writer_lock(arguments.repository, "retry"):
             return 0, enable_retry(arguments.repository, arguments.task_id)

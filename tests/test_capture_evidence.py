@@ -114,7 +114,7 @@ class CaptureEvidenceTest(unittest.TestCase):
         source = json.loads(
             (task_directory / "sources" / "article.json").read_text("utf-8")
         )
-        self.assertEqual(result["task_results"][0]["status"], "fake_draft_confirmed")
+        self.assertEqual(result["task_results"][0]["status"], "rewrite_artifact_ready")
         self.assertEqual(
             (task_directory / "raw" / "capture" / "clipboard.txt").read_text(
                 "utf-8"
@@ -266,7 +266,7 @@ class CaptureEvidenceTest(unittest.TestCase):
             (task_directory / "sources" / "article.json").read_text("utf-8")
         )
         gif = manifest["image_occurrences"][0]
-        self.assertEqual(result["task_results"][0]["status"], "fake_draft_confirmed")
+        self.assertEqual(result["task_results"][0]["status"], "rewrite_artifact_ready")
         self.assertEqual(gif["source_kind"], "gif")
         self.assertEqual(gif["capture_method"], "static_frame")
         self.assertEqual(gif["degradation"], "animation_removed")
@@ -371,7 +371,7 @@ class CaptureEvidenceTest(unittest.TestCase):
 
         self.assertEqual(
             [task["status"] for task in result["task_results"]],
-            ["permanent_failure", "fake_draft_confirmed"],
+            ["permanent_failure", "rewrite_artifact_ready"],
         )
         invalid_task = json.loads(
             (

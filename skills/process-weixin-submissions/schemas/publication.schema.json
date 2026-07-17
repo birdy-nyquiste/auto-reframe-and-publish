@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "publication.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "publication_id",
+    "created_in_run",
+    "created_at",
+    "updated_at",
+    "task_id",
+    "rewrite_commit_sha256",
+    "target_id",
+    "slug",
+    "adapter",
+    "milestone",
+    "blocker",
+    "external_result"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "publication_id": {"type": "string"},
+    "created_in_run": {"type": "string"},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "task_id": {"type": "string"},
+    "rewrite_commit_sha256": {"type": "string"},
+    "target_id": {"type": "string"},
+    "slug": {"type": "string"},
+    "adapter": {"type": "string"},
+    "milestone": {
+      "type": "string",
+      "enum": ["publication_created", "request_ready", "publication_confirmed"]
+    },
+    "blocker": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "error_code", "message"],
+          "properties": {
+            "kind": {"type": "string", "enum": ["needs_configuration", "permanent_failure", "outcome_unknown"]},
+            "error_code": {"type": "string"},
+            "message": {"type": "string"}
+          }
+        }
+      ]
+    },
+    "external_result": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["external_id", "status", "public_url", "slug", "adapter"],
+          "properties": {
+            "external_id": {"type": "string"},
+            "status": {"type": "string", "const": "published"},
+            "public_url": {"type": "string"},
+            "slug": {"type": "string"},
+            "adapter": {"type": "string"}
+          }
+        }
+      ]
+    }
+  },
+  "x-allowed-transitions": {
+    "publication_created": ["request_ready"],
+    "request_ready": ["publication_confirmed"],
+    "publication_confirmed": []
+  },
+  "x-milestone-invariants": {
+    "publication_created": {"external_result": "null"},
+    "request_ready": {"external_result": "null"},
+    "publication_confirmed": {"external_result": "object", "blocker": "null"}
+  }
+}

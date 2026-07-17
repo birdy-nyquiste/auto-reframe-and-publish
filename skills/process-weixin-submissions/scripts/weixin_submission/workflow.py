@@ -9,9 +9,9 @@ from .capture import (
     load_structured_source,
     rebuild_structured_source,
 )
-from .delivery import BlogAdapterError, deliver_canonical_draft
-from .fake_blog import FakeBlogAdapter
 from .protocol import IntakeCandidate, parse_input_window
+from .publication import FakePublicationAdapter, PublicationAdapter, publish_rewrite
+from .lsforum_blog import LsforumPublicationAdapter
 from .retry_policy import retry_budget
 from .rewrite import (
     RewriteRejected,
@@ -55,7 +55,7 @@ MISSING_CAPABILITIES = (
     "Windows Computer Use",
     "approved rewrite policy",
     "real Agent rewrite generation",
-    "real Blog API",
+    "controlled live LSForum publication acceptance",
 )
 
 
@@ -98,7 +98,9 @@ def initialize_scripted_chat(
 def run_scripted_chat(
     repository: Path,
     chat_path: Path,
-    fake_blog_directory: Path,
+    publication_selection: str = "none",
+    fake_blog_directory: Path | None = None,
+    blog_config: Path | None = None,
     simulate_interruption_after: str | None = None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
     clipboard_path: Path | None = None,
@@ -109,7 +111,9 @@ def run_scripted_chat(
         return _run_scripted_chat_owned(
             repository,
             chat_path,
+            publication_selection,
             fake_blog_directory,
+            blog_config,
             clipboard,
             simulate_interruption_after,
             scripted_rewrite_outcome,
@@ -119,20 +123,32 @@ def run_scripted_chat(
 def _run_scripted_chat_owned(
     repository: Path,
     chat_path: Path,
-    fake_blog_directory: Path,
+    publication_selection: str,
+    fake_blog_directory: Path | None,
+    blog_config: Path | None,
     clipboard: ScriptedClipboard,
     simulate_interruption_after: str | None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome,
 ) -> dict[str, object]:
+    if publication_selection not in ("none", "auto"):
+        raise WorkflowError(
+            f"Unsupported publication selection: {publication_selection}"
+        )
+    if (
+        publication_selection == "auto"
+        and fake_blog_directory is None
+        and blog_config is None
+    ):
+        raise WorkflowError("Automatic publication requires a configured Blog adapter")
     metadata = load_record("repository", repository / "repository.json")
     intake = metadata.get("intake")
-    if not isinstance(intake, dict) or not isinstance(intake.get("last_marker_id"), str):
+    if not isinstance(intake, dict) or not isinstance(
+        intake.get("last_marker_id"), str
+    ):
         raise WorkflowError("Initialize the scripted chat before running intake")
     pending_window = metadata.get("pending_window")
     if pending_window is None:
-        window = capture_next_window(
-            chat_path, intake["last_marker_id"], clipboard
-        )
+        window = capture_next_window(chat_path, intake["last_marker_id"], clipboard)
         candidates = parse_input_window(window.messages, window.current_marker_id)
         pending_window = {
             "adapter": "scripted_chat",
@@ -142,12 +158,17 @@ def _run_scripted_chat_owned(
             "messages": list(window.messages),
             "run_id": new_id("run"),
             "task_ids": [new_id("task") for _candidate in candidates],
+            "publication_selection": publication_selection,
         }
         metadata["pending_window"] = pending_window
         metadata["validation_scope"] = VALIDATION_SCOPE
         save_record("repository", repository / "repository.json", metadata)
     if not isinstance(pending_window, dict):
         raise WorkflowError("Repository pending_window is invalid")
+    if pending_window["publication_selection"] != publication_selection:
+        raise WorkflowError(
+            "The pending input window must resume with its original publication selection"
+        )
     current_marker_id = str(pending_window["current_marker_id"])
     messages = pending_window["messages"]
     candidates = parse_input_window(messages, current_marker_id)
@@ -166,7 +187,9 @@ def _run_scripted_chat_owned(
         repository,
         candidates,
         pending_window,
+        publication_selection,
         fake_blog_directory,
+        blog_config,
         simulate_interruption_after,
         scripted_rewrite_outcome,
         str(pending_window["run_id"]),
@@ -181,7 +204,9 @@ def _run_candidates(
     repository: Path,
     candidates: list[IntakeCandidate],
     input_window: dict[str, object],
-    fake_blog_directory: Path,
+    publication_selection: str,
+    fake_blog_directory: Path | None,
+    blog_config: Path | None,
     simulate_interruption_after: str | None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome,
     run_id: str,
@@ -190,6 +215,8 @@ def _run_candidates(
 ) -> dict[str, object]:
     run_directory = repository / "runs" / run_id
     result_by_task: dict[str, dict[str, object]] = {}
+    publication_results: list[dict[str, Any]] = []
+    newly_ready_task_ids: list[str] = []
     run_path = run_directory / "run.json"
     if run_path.exists():
         run_record = load_record("run", run_path)
@@ -208,6 +235,9 @@ def _run_candidates(
             "input_window": input_window,
             "created_task_ids": created_task_ids,
             "attempted_task_ids": [],
+            "publication_selection": publication_selection,
+            "created_publication_ids": [],
+            "attempted_publication_ids": [],
             "recovered_by_run": None,
         }
         save_record("run", run_path, run_record)
@@ -244,8 +274,6 @@ def _run_candidates(
             "requirements": submission.requirements if submission else None,
             "milestone": "task_created",
             "blocker": blocker,
-            "delivery_mode": "fake" if submission else None,
-            "external_draft": None,
             "retry_generation": 0,
         }
         raw_intake = {
@@ -275,22 +303,21 @@ def _run_candidates(
         if any(candidate.submission is not None for candidate in candidates):
             _maybe_interrupt(simulate_interruption_after, "task_created")
 
-        blog = FakeBlogAdapter(fake_blog_directory)
         executable = _load_executable_tasks(repository)
         for task_id, task_record, submission in executable:
+            milestone_before = str(task_record["milestone"])
             if task_id not in run_record["attempted_task_ids"]:
                 run_record["attempted_task_ids"].append(task_id)
             save_record("run", run_directory / "run.json", run_record)
-            delivery_response = _process_task(
+            content_ready = _process_task(
                 repository / "tasks" / task_id,
                 task_record,
                 submission,
-                blog,
                 run_id,
                 simulate_interruption_after,
                 scripted_rewrite_outcome,
             )
-            if delivery_response is None:
+            if not content_ready:
                 blocker = task_record["blocker"]
                 if not isinstance(blocker, dict):
                     raise WorkflowError(f"Task {task_id} failed without a blocker")
@@ -302,10 +329,29 @@ def _run_candidates(
             else:
                 result_by_task[task_id] = {
                     "task_id": task_id,
-                    "status": "fake_draft_confirmed",
-                    "draft_id": delivery_response["draft_id"],
-                    "preview_url": delivery_response["preview_url"],
+                    "status": "rewrite_artifact_ready",
                 }
+                if milestone_before != "rewrite_artifact_ready":
+                    newly_ready_task_ids.append(task_id)
+
+        if publication_selection == "auto":
+            publication_adapter: PublicationAdapter
+            if fake_blog_directory is not None:
+                publication_adapter = FakePublicationAdapter(fake_blog_directory)
+            elif blog_config is not None:
+                publication_adapter = LsforumPublicationAdapter(blog_config)
+            else:
+                raise WorkflowError("Automatic publication has no Blog adapter")
+            for task_id in newly_ready_task_ids:
+                publication_id, publication_result = publish_rewrite(
+                    repository, task_id, run_id, publication_adapter
+                )
+                run_record["created_publication_ids"].append(publication_id)
+                run_record["attempted_publication_ids"].append(publication_id)
+                save_record("run", run_directory / "run.json", run_record)
+                publication_results.append(publication_result)
+        if newly_ready_task_ids:
+            _maybe_interrupt(simulate_interruption_after, "rewrite_artifact_ready")
     except SimulatedInterruption as error:
         run_record["completed_at"] = utc_now()
         run_record["status"] = "interrupted"
@@ -325,7 +371,14 @@ def _run_candidates(
     report_path = run_directory / "report.md"
     write_text(
         report_path,
-        _render_report(run_id, input_window, task_results, recovered_run_ids),
+        _render_report(
+            run_id,
+            input_window,
+            task_results,
+            publication_results,
+            publication_selection,
+            recovered_run_ids,
+        ),
     )
     run_record["completed_at"] = utc_now()
     run_record["status"] = "completed"
@@ -336,6 +389,8 @@ def _run_candidates(
         "task_ids": created_task_ids,
         "attempted_task_ids": run_record["attempted_task_ids"],
         "task_results": task_results,
+        "publication_results": publication_results,
+        "publication_selection": publication_selection,
         "report_path": str(report_path.resolve()),
         "validation_scope": VALIDATION_SCOPE,
         "missing_capabilities": list(MISSING_CAPABILITIES),
@@ -352,7 +407,7 @@ def _load_executable_tasks(
     creation_order = _load_task_creation_order(repository)
     for task_directory in task_directories:
         task_record = load_record("task", task_directory / "task.json")
-        if task_record["milestone"] == "draft_delivery_confirmed":
+        if task_record["milestone"] == "rewrite_artifact_ready":
             continue
         blocker = task_record["blocker"]
         if blocker is not None:
@@ -391,13 +446,13 @@ def _default_clipboard_path(chat_path: Path) -> Path:
 
 
 def _result_from_task(task_record: dict[str, Any]) -> dict[str, object]:
-    external_draft = task_record["external_draft"]
-    if isinstance(external_draft, dict):
+    if (
+        task_record["milestone"] == "rewrite_artifact_ready"
+        and task_record["blocker"] is None
+    ):
         return {
             "task_id": str(task_record["task_id"]),
-            "status": "fake_draft_confirmed",
-            "draft_id": str(external_draft["draft_id"]),
-            "preview_url": str(external_draft["preview_url"]),
+            "status": "rewrite_artifact_ready",
         }
     blocker = task_record["blocker"]
     if isinstance(blocker, dict):
@@ -414,11 +469,10 @@ def _process_task(
     task_directory: Path,
     task_record: dict[str, Any],
     submission: Submission,
-    blog: FakeBlogAdapter,
     run_id: str,
     simulate_interruption_after: str | None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome,
-) -> dict[str, Any] | None:
+) -> bool:
     task_id = task_record["task_id"]
 
     if task_record["milestone"] == "task_created":
@@ -427,7 +481,7 @@ def _process_task(
             capture_raw_evidence(task_directory, submission, run_id)
         except CaptureRejected as error:
             _record_capture_failure(task_directory, task_record, run_id, error)
-            return None
+            return False
         except (SchemaValidationError, WorkflowError) as error:
             _record_operation_failure(
                 task_directory,
@@ -439,10 +493,8 @@ def _process_task(
                 message=str(error),
                 retryable=False,
             )
-            return None
-        commit_task_milestone(
-            task_directory, task_record, "raw_evidence_ready", run_id
-        )
+            return False
+        commit_task_milestone(task_directory, task_record, "raw_evidence_ready", run_id)
         _maybe_interrupt(simulate_interruption_after, "raw_evidence_ready")
         _finish_attempt(task_directory, task_id, run_id, "capture_raw_evidence")
 
@@ -461,7 +513,7 @@ def _process_task(
                 message=str(error),
                 retryable=False,
             )
-            return None
+            return False
         commit_task_milestone(
             task_directory, task_record, "structured_source_ready", run_id
         )
@@ -471,9 +523,7 @@ def _process_task(
     if task_record["milestone"] == "structured_source_ready":
         _start_attempt(task_directory, task_id, run_id, "generate_rewrite")
         try:
-            source = load_structured_source(
-                task_directory / "sources" / "article.json"
-            )
+            source = load_structured_source(task_directory / "sources" / "article.json")
             generate_validated_rewrite(
                 task_directory,
                 submission,
@@ -492,7 +542,7 @@ def _process_task(
                 message=str(error),
                 retryable=False,
             )
-            return None
+            return False
         except (SchemaValidationError, WorkflowError) as error:
             _record_operation_failure(
                 task_directory,
@@ -504,17 +554,14 @@ def _process_task(
                 message=str(error),
                 retryable=False,
             )
-            return None
+            return False
         commit_task_milestone(
             task_directory, task_record, "rewrite_artifact_ready", run_id
         )
-        _maybe_interrupt(simulate_interruption_after, "rewrite_artifact_ready")
         _finish_attempt(task_directory, task_id, run_id, "generate_rewrite")
 
     if task_record["milestone"] == "rewrite_artifact_ready":
-        _start_attempt(
-            task_directory, task_id, run_id, "validate_rewrite_artifact"
-        )
+        _start_attempt(task_directory, task_id, run_id, "validate_rewrite_artifact")
         try:
             artifact = load_rewrite_artifact(
                 task_directory, submission.target_id, submission.requirements
@@ -530,62 +577,10 @@ def _process_task(
                 message=str(error),
                 retryable=False,
             )
-            return None
-        _finish_attempt(
-            task_directory, task_id, run_id, "validate_rewrite_artifact"
-        )
-        _start_attempt(task_directory, task_id, run_id, "deliver_draft")
-        try:
-            _raw_response, delivery_response = deliver_canonical_draft(
-                task_directory, task_id, artifact, blog, run_id
-            )
-        except BlogAdapterError as error:
-            _record_delivery_failure(
-                task_directory, task_record, run_id, error
-            )
-            return None
-        except (SchemaValidationError, WorkflowError) as error:
-            _record_operation_failure(
-                task_directory,
-                task_record,
-                run_id,
-                operation="deliver_draft",
-                error_category="delivery_integrity",
-                error_code="delivery_request_invalid",
-                message=str(error),
-                retryable=False,
-            )
-            return None
-        task_record["blocker"] = None
-        task_record["external_draft"] = delivery_response
-        commit_task_milestone(
-            task_directory, task_record, "draft_delivery_confirmed", run_id
-        )
-        _maybe_interrupt(simulate_interruption_after, "draft_delivery_confirmed")
-        _finish_attempt(task_directory, task_id, run_id, "deliver_draft")
-
-    external_draft = task_record["external_draft"]
-    if not isinstance(external_draft, dict):
-        raise WorkflowError(f"Task {task_id} has no confirmed draft response")
-    return external_draft
-
-
-def _record_delivery_failure(
-    task_directory: Path,
-    task_record: dict[str, Any],
-    run_id: str,
-    error: BlogAdapterError,
-) -> None:
-    _record_operation_failure(
-        task_directory,
-        task_record,
-        run_id,
-        operation="deliver_draft",
-        error_category=error.category,
-        error_code=error.code,
-        message=str(error),
-        retryable=True,
-    )
+            return False
+        _finish_attempt(task_directory, task_id, run_id, "validate_rewrite_artifact")
+        return True
+    return task_record["milestone"] == "rewrite_artifact_ready"
 
 
 def _record_capture_failure(
@@ -687,6 +682,9 @@ def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
         "input_window": {"task_id": task_id},
         "created_task_ids": [],
         "attempted_task_ids": [],
+        "publication_selection": "none",
+        "created_publication_ids": [],
+        "attempted_publication_ids": [],
         "recovered_by_run": None,
     }
     save_record("run", run_directory / "run.json", run_record)
@@ -775,6 +773,8 @@ def _render_report(
     run_id: str,
     input_window: dict[str, object],
     task_results: list[dict[str, object]],
+    publication_results: list[dict[str, object]],
+    publication_selection: str,
     recovered_run_ids: list[str],
 ) -> str:
     lines = [
@@ -783,6 +783,7 @@ def _render_report(
         "- Status: completed",
         f"- Input window: {input_window}",
         f"- Tasks: {len(task_results)}",
+        f"- Publication selection: {publication_selection}",
         f"- Recovered runs: {', '.join(recovered_run_ids) if recovered_run_ids else 'none'}",
         f"- Validation scope: {VALIDATION_SCOPE}",
         f"- Not validated: {', '.join(MISSING_CAPABILITIES)}",
@@ -792,10 +793,16 @@ def _render_report(
     ]
     for result in task_results:
         line = f"- {result['task_id']}: {result['status']}"
-        if result.get("draft_id"):
-            line += f" ({result['draft_id']})"
-        if result.get("preview_url"):
-            line += f" {result['preview_url']}"
+        if result.get("blocker_reason"):
+            line += f" ({result['blocker_reason']})"
+        lines.append(line)
+    lines.extend(["", "## Publication results", ""])
+    if not publication_results:
+        lines.append("- none")
+    for result in publication_results:
+        line = f"- {result['publication_id']}: {result['status']}"
+        if result.get("public_url"):
+            line += f" {result['public_url']}"
         if result.get("blocker_reason"):
             line += f" ({result['blocker_reason']})"
         lines.append(line)
@@ -833,6 +840,8 @@ def _render_interrupted_report(run_record: dict[str, Any], reason: str) -> str:
             f"- Reason: {reason}",
             f"- Created tasks: {', '.join(run_record['created_task_ids']) or 'none'}",
             f"- Attempted tasks: {', '.join(run_record['attempted_task_ids']) or 'none'}",
+            f"- Created publications: {', '.join(run_record['created_publication_ids']) or 'none'}",
+            f"- Attempted publications: {', '.join(run_record['attempted_publication_ids']) or 'none'}",
             "",
         ]
     )

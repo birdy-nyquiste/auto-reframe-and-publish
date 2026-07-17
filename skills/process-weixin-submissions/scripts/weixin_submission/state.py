@@ -4,7 +4,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .schema_validation import SchemaValidationError, allowed_transitions, validate_record
+from .schema_validation import (
+    SchemaValidationError,
+    allowed_transitions,
+    validate_record,
+)
 from .storage import new_id, read_json, utc_now, write_json
 
 
@@ -34,7 +38,9 @@ def append_task_event(
     state_after: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     events_directory = task_directory / "events"
-    existing = sorted(events_directory.glob("*.json")) if events_directory.exists() else []
+    existing = (
+        sorted(events_directory.glob("*.json")) if events_directory.exists() else []
+    )
     sequence = len(existing) + 1
     event = {
         "schema_version": 2,
@@ -146,7 +152,9 @@ def _validate_state_event(
     state_after: dict[str, Any],
 ) -> None:
     if state_after["task_id"] != event["task_id"]:
-        raise SchemaValidationError("Event state_after task_id does not match event task_id")
+        raise SchemaValidationError(
+            "Event state_after task_id does not match event task_id"
+        )
     event_type = event["type"]
     milestone = state_after["milestone"]
     if event_type == "milestone_committed":
@@ -156,13 +164,17 @@ def _validate_state_event(
             )
         if previous is None:
             if milestone != "task_created":
-                raise SchemaValidationError("First committed task state must be task_created")
+                raise SchemaValidationError(
+                    "First committed task state must be task_created"
+                )
             if state_after["created_in_run"] != event["run_id"]:
                 raise SchemaValidationError(
                     "task_created state must reference the event's run"
                 )
             if state_after["retry_generation"] != 0:
-                raise SchemaValidationError("task_created retry_generation must be zero")
+                raise SchemaValidationError(
+                    "task_created retry_generation must be zero"
+                )
         elif milestone not in allowed_transitions().get(previous["milestone"], ()):
             raise SchemaValidationError(
                 f"Illegal task event transition: {previous['milestone']} -> {milestone}"
@@ -181,12 +193,9 @@ def _validate_state_event(
             "created_at",
             "target_id",
             "requirements",
-            "delivery_mode",
         )
         changed = [
-            field
-            for field in immutable_fields
-            if state_after[field] != previous[field]
+            field for field in immutable_fields if state_after[field] != previous[field]
         ]
         if changed:
             raise SchemaValidationError(
@@ -265,7 +274,10 @@ def _committed_raw_intake(task_directory: Path) -> dict[str, Any] | None:
     for event_path in sorted(events_directory.glob("*.json")):
         event = read_json(event_path)
         validate_record("event", event)
-        if event["type"] != "milestone_committed" or event["milestone"] != "task_created":
+        if (
+            event["type"] != "milestone_committed"
+            or event["milestone"] != "task_created"
+        ):
             continue
         raw_intake = event["details"].get("raw_intake")
         if isinstance(raw_intake, dict):

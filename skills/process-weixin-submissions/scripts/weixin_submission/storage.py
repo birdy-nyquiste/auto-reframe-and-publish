@@ -10,7 +10,7 @@ from typing import Any
 from .schema_validation import validate_record
 
 
-REPOSITORY_VERSION = 2
+REPOSITORY_VERSION = 3
 VALIDATION_SCOPE = "core_validated"
 
 
@@ -65,6 +65,7 @@ def initialize_repository(repository: Path) -> dict[str, object]:
     repository.mkdir(parents=True, exist_ok=True)
     (repository / "runs").mkdir(exist_ok=True)
     (repository / "tasks").mkdir(exist_ok=True)
+    (repository / "publications").mkdir(exist_ok=True)
     metadata_path = repository / "repository.json"
     if metadata_path.exists():
         existing_metadata = read_json(metadata_path)
@@ -93,6 +94,7 @@ def repository_status(
     metadata = read_json(repository / "repository.json")
     validate_record("repository", metadata)
     from .state import load_record
+    from .publication import validate_publication_history
     from .writer_lock import describe_writer_lock
 
     run_status_counts: dict[str, int] = {}
@@ -132,6 +134,36 @@ def repository_status(
             kind = str(blocker["kind"])
             blocker_counts[kind] = blocker_counts.get(kind, 0) + 1
 
+    publication_milestone_counts: dict[str, int] = {}
+    publication_blocker_counts: dict[str, int] = {}
+    publication_count = 0
+    for publication_directory in sorted((repository / "publications").iterdir()):
+        if not publication_directory.is_dir():
+            continue
+        publication_count += 1
+        publication = validate_publication_history(publication_directory)
+        milestone = str(publication["milestone"])
+        publication_milestone_counts[milestone] = (
+            publication_milestone_counts.get(milestone, 0) + 1
+        )
+        blocker = publication["blocker"]
+        if isinstance(blocker, dict):
+            kind = str(blocker["kind"])
+            publication_blocker_counts[kind] = (
+                publication_blocker_counts.get(kind, 0) + 1
+            )
+        events_directory = publication_directory / "events"
+        for event_path in sorted(events_directory.glob("*.json")):
+            event = load_record("publication-event", event_path)
+            if event["publication_id"] != publication["publication_id"]:
+                raise WorkflowError(
+                    f"Event {event_path} does not belong to publication {publication['publication_id']}"
+                )
+            if event["run_id"] not in run_ids:
+                raise WorkflowError(
+                    f"Event {event_path} references missing run {event['run_id']}"
+                )
+
     try:
         disk_usage_bytes = sum(
             path.stat().st_size for path in repository.rglob("*") if path.is_file()
@@ -145,8 +177,11 @@ def repository_status(
         "validation_scope": metadata["validation_scope"],
         "run_count": len(run_ids),
         "task_count": task_count,
+        "publication_count": publication_count,
         "milestones": milestone_counts,
         "blockers": blocker_counts,
+        "publication_milestones": publication_milestone_counts,
+        "publication_blockers": publication_blocker_counts,
         "run_statuses": run_status_counts,
         "writer_lock": describe_writer_lock(repository),
         "disk_usage": {

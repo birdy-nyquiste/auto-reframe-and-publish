@@ -149,20 +149,14 @@ class MarkerWindowIntakeTest(unittest.TestCase):
             )
         )
         rewrite = (task_directory / "rewrite" / "content.md").read_text("utf-8")
-        delivery_request = json.loads(
-            (task_directory / "delivery" / "request.json").read_text("utf-8")
-        )
-        delivery_response = json.loads(
-            (task_directory / "delivery" / "response.json").read_text("utf-8")
-        )
         report = (self.repository / "runs" / run_id / "report.md").read_text("utf-8")
 
         self.assertEqual(run["input_window"]["previous_marker_id"], baseline_marker_id)
         self.assertEqual(run["input_window"]["current_marker_id"], result["marker_id"])
         self.assertEqual(raw["title"], "本次应处理的文章")
         self.assertIn("本次应处理的文章", rewrite)
-        self.assertEqual(delivery_request["idempotency_key"], task_id)
-        self.assertEqual(delivery_response["status"], "accepted")
+        self.assertEqual(run["publication_selection"], "none")
+        self.assertEqual(result["publication_results"], [])
         self.assertIn(task_id, report)
 
         final_chat = json.loads(self.chat_path.read_text("utf-8"))
@@ -267,9 +261,9 @@ class MarkerWindowIntakeTest(unittest.TestCase):
         self.assertEqual(
             [item["status"] for item in result["task_results"]],
             [
-                "fake_draft_confirmed",
-                "fake_draft_confirmed",
-                "fake_draft_confirmed",
+                "rewrite_artifact_ready",
+                "rewrite_artifact_ready",
+                "rewrite_artifact_ready",
                 "needs_input",
                 "needs_input",
                 "needs_input",
@@ -289,7 +283,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
         self.assertEqual(
             records[5]["blocker"]["reason"], "duplicate_control_field"
         )
-        self.assertEqual(len(list((self.fake_blog / "drafts").glob("*.json"))), 3)
+        self.assertEqual(list((self.repository / "publications").iterdir()), [])
 
     def test_invalid_inputs_are_isolated_and_identical_submissions_remain_distinct(
         self,
@@ -337,8 +331,8 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 "needs_input",
                 "needs_input",
                 "needs_input",
-                "fake_draft_confirmed",
-                "fake_draft_confirmed",
+                "rewrite_artifact_ready",
+                "rewrite_artifact_ready",
             ],
         )
         self.assertEqual(
@@ -370,7 +364,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
             for task_id in duplicate_task_ids
         ]
         self.assertEqual(duplicate_raw[0], duplicate_raw[1])
-        self.assertEqual(len(list((self.fake_blog / "drafts").glob("*.json"))), 2)
+        self.assertEqual(list((self.repository / "publications").iterdir()), [])
 
 
 if __name__ == "__main__":

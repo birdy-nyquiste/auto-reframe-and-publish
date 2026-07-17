@@ -4,9 +4,6 @@ from __future__ import annotations
 SCRIPTED_RETRY_BUDGETS = {
     "capture_raw_evidence": {
         "capture_incomplete": 2,
-    },
-    "deliver_draft": {
-        "transient": 2,
     }
 }
 

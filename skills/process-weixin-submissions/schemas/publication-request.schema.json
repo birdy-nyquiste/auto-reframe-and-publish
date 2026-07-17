@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "publication-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_version", "operation", "publication_id", "slug", "target", "title", "body_markdown", "images", "adapter"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "contract_version": {"type": "integer", "const": 1},
+    "operation": {"type": "string", "const": "publish_post"},
+    "publication_id": {"type": "string"},
+    "slug": {"type": "string"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "mapped_fields"],
+      "properties": {
+        "source_id": {"type": "string"},
+        "mapped_fields": {"type": "object", "additionalProperties": true}
+      }
+    },
+    "title": {"type": "string"},
+    "body_markdown": {"type": "string"},
+    "images": {"type": "array", "items": {"type": "string"}},
+    "adapter": {"type": "string"}
+  }
+}

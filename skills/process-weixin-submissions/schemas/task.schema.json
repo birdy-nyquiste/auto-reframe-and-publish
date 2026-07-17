@@ -13,8 +13,6 @@
     "requirements",
     "milestone",
     "blocker",
-    "delivery_mode",
-    "external_draft",
     "retry_generation"
   ],
   "properties": {
@@ -31,8 +29,7 @@
         "task_created",
         "raw_evidence_ready",
         "structured_source_ready",
-        "rewrite_artifact_ready",
-        "draft_delivery_confirmed"
+        "rewrite_artifact_ready"
       ]
     },
     "blocker": {
@@ -90,31 +87,13 @@
         }
       ]
     },
-    "delivery_mode": {"type": ["string", "null"], "enum": ["fake", null]},
-    "external_draft": {
-      "oneOf": [
-        {"type": "null"},
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["draft_id", "status", "preview_url", "adapter"],
-          "properties": {
-            "draft_id": {"type": "string"},
-            "status": {"type": "string", "const": "accepted"},
-            "preview_url": {"type": "string"},
-            "adapter": {"type": "string", "const": "fake"}
-          }
-        }
-      ]
-    },
     "retry_generation": {"type": "integer", "minimum": 0}
   },
   "x-allowed-transitions": {
     "task_created": ["raw_evidence_ready"],
     "raw_evidence_ready": ["structured_source_ready"],
     "structured_source_ready": ["rewrite_artifact_ready"],
-    "rewrite_artifact_ready": ["draft_delivery_confirmed"],
-    "draft_delivery_confirmed": []
+    "rewrite_artifact_ready": []
   },
   "x-milestone-invariants": {
     "task_created": {
@@ -124,16 +103,13 @@
         "retry_pending",
         "retry_exhausted",
         "permanent_failure"
-      ],
-      "external_draft": "null"
+      ]
     },
     "raw_evidence_ready": {
-      "allowed_blockers": ["none", "permanent_failure"],
-      "external_draft": "null"
+      "allowed_blockers": ["none", "permanent_failure"]
     },
     "structured_source_ready": {
-      "allowed_blockers": ["none", "permanent_failure"],
-      "external_draft": "null"
+      "allowed_blockers": ["none", "permanent_failure"]
     },
     "rewrite_artifact_ready": {
       "allowed_blockers": [
@@ -141,12 +117,7 @@
         "retry_pending",
         "retry_exhausted",
         "permanent_failure"
-      ],
-      "external_draft": "null"
-    },
-    "draft_delivery_confirmed": {
-      "allowed_blockers": ["none"],
-      "external_draft": "object"
+      ]
     }
   },
   "x-retry-blocker-invariants": {

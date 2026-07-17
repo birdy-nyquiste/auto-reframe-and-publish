@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "publication-event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "sequence", "publication_id", "run_id", "occurred_at", "type", "milestone", "details", "state_after"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "event_id": {"type": "string"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "publication_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "occurred_at": {"type": "string"},
+    "type": {"type": "string", "enum": ["milestone_committed", "blocked"]},
+    "milestone": {"type": "string"},
+    "details": {"type": "object", "additionalProperties": true},
+    "state_after": {"type": "object"}
+  }
+}

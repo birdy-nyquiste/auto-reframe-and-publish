@@ -19,7 +19,9 @@ def load_schema(record_type: str) -> dict[str, Any]:
     try:
         schema = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError) as error:
-        raise SchemaValidationError(f"Cannot load schema for {record_type}: {error}") from error
+        raise SchemaValidationError(
+            f"Cannot load schema for {record_type}: {error}"
+        ) from error
     if not isinstance(schema, dict):
         raise SchemaValidationError(f"Schema for {record_type} must be an object")
     return schema
@@ -31,7 +33,17 @@ def validate_record(record_type: str, value: dict[str, Any]) -> None:
     if record_type == "task":
         _validate_task_invariants(value, schema)
     if record_type == "run":
-        _validate_discriminated_invariants(value, schema, "status", "x-status-invariants")
+        _validate_discriminated_invariants(
+            value, schema, "status", "x-status-invariants"
+        )
+    if record_type == "publication":
+        _validate_discriminated_invariants(
+            value, schema, "milestone", "x-milestone-invariants"
+        )
+    if record_type == "publication-event":
+        state_after = value.get("state_after")
+        if isinstance(state_after, dict):
+            validate_record("publication", state_after)
     if record_type == "event":
         _validate_discriminated_invariants(value, schema, "type", "x-type-invariants")
         milestone = value.get("milestone")
@@ -48,10 +60,30 @@ def allowed_transitions() -> dict[str, tuple[str, ...]]:
         raise SchemaValidationError("Task schema is missing x-allowed-transitions")
     result: dict[str, tuple[str, ...]] = {}
     for current, following in transitions.items():
-        if not isinstance(current, str) or not isinstance(following, list) or not all(
-            isinstance(item, str) for item in following
+        if (
+            not isinstance(current, str)
+            or not isinstance(following, list)
+            or not all(isinstance(item, str) for item in following)
         ):
             raise SchemaValidationError("Task transition metadata is invalid")
+        result[current] = tuple(following)
+    return result
+
+
+def publication_allowed_transitions() -> dict[str, tuple[str, ...]]:
+    transitions = load_schema("publication").get("x-allowed-transitions")
+    if not isinstance(transitions, dict):
+        raise SchemaValidationError(
+            "Publication schema is missing x-allowed-transitions"
+        )
+    result: dict[str, tuple[str, ...]] = {}
+    for current, following in transitions.items():
+        if (
+            not isinstance(current, str)
+            or not isinstance(following, list)
+            or not all(isinstance(item, str) for item in following)
+        ):
+            raise SchemaValidationError("Publication transition metadata is invalid")
         result[current] = tuple(following)
     return result
 
@@ -65,7 +97,9 @@ def milestones() -> tuple[str, ...]:
     if not isinstance(milestone_schema, dict):
         raise SchemaValidationError("Task schema is missing milestone")
     values = milestone_schema.get("enum")
-    if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
+    if not isinstance(values, list) or not all(
+        isinstance(item, str) for item in values
+    ):
         raise SchemaValidationError("Task milestone enum is invalid")
     return tuple(values)
 
@@ -83,9 +117,7 @@ def _validate(
         definitions = root_schema.get("$defs")
         definition_name = reference.removeprefix("#/$defs/")
         definition = (
-            definitions.get(definition_name)
-            if isinstance(definitions, dict)
-            else None
+            definitions.get(definition_name) if isinstance(definitions, dict) else None
         )
         if not isinstance(definition, dict):
             raise SchemaValidationError(f"{location}: unresolved $ref {reference!r}")
@@ -118,7 +150,9 @@ def _validate(
             )
 
     if "const" in schema and value != schema["const"]:
-        raise SchemaValidationError(f"{location}: expected constant {schema['const']!r}")
+        raise SchemaValidationError(
+            f"{location}: expected constant {schema['const']!r}"
+        )
     if "enum" in schema and value not in schema["enum"]:
         raise SchemaValidationError(f"{location}: value {value!r} is not in enum")
     if isinstance(value, int) and not isinstance(value, bool) and "minimum" in schema:
@@ -129,7 +163,9 @@ def _validate(
         required = schema.get("required", [])
         missing = [field for field in required if field not in value]
         if missing:
-            raise SchemaValidationError(f"{location}: missing required fields {missing}")
+            raise SchemaValidationError(
+                f"{location}: missing required fields {missing}"
+            )
         properties = schema.get("properties", {})
         if schema.get("additionalProperties") is False:
             unknown = sorted(set(value) - set(properties))
@@ -181,17 +217,6 @@ def _validate_task_invariants(value: dict[str, Any], schema: dict[str, Any]) -> 
     if not isinstance(allowed_blockers, list) or blocker_kind not in allowed_blockers:
         raise SchemaValidationError(
             f"task: illegal blocker {blocker_kind!r} at milestone {milestone!r}"
-        )
-
-    expected_external_draft = invariant.get("external_draft")
-    external_draft = value.get("external_draft")
-    if expected_external_draft == "null" and external_draft is not None:
-        raise SchemaValidationError(
-            f"task: external_draft must be null at milestone {milestone!r}"
-        )
-    if expected_external_draft == "object" and not isinstance(external_draft, dict):
-        raise SchemaValidationError(
-            f"task: external_draft must be an object at milestone {milestone!r}"
         )
 
     if isinstance(blocker, dict) and blocker.get("kind") in (

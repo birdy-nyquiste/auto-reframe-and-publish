@@ -197,18 +197,23 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
         self,
     ) -> None:
         self.initialize()
-        self.write_blog_control(
-            {
-                "create_draft_failures": [
-                    {
-                        "category": "transient",
-                        "code": "first_timeout",
-                        "message": "First request timed out",
-                    }
-                ]
-            }
+        self.append_messages(
+            [
+                submission("historical", "author-historical")[0],
+                {
+                    "message_id": "historical-article",
+                    "kind": "official_account_article",
+                    "title": "Incomplete historical article",
+                    "scripted_capture": {
+                        "clipboard_text": "The article end was not observed.",
+                        "source_url": None,
+                        "article_end_observed": False,
+                        "all_static_images_captured": True,
+                        "media": [],
+                    },
+                },
+            ]
         )
-        self.append_messages(submission("historical", "author-historical"))
         first = self.run_intake()
         assert first is not None
         historical_task_id = first["task_ids"][0]
@@ -216,13 +221,6 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
         historical = json.loads(historical_path.read_text(encoding="utf-8"))
         self.assertEqual(historical["blocker"]["kind"], "retry_pending")
 
-        self.write_blog_control(
-            {
-                "create_draft_responses": [
-                    ["invalid response for the oldest task"]
-                ]
-            }
-        )
         self.append_messages(
             [
                 *submission("new", "author-new"),
@@ -248,25 +246,21 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
         )
         self.assertEqual(
             {result["status"] for result in second["task_results"]},
-            {"fake_draft_confirmed", "needs_input", "permanent_failure"},
+            {"rewrite_artifact_ready", "needs_input", "retry_exhausted"},
         )
         completed_result = next(
             result
             for result in second["task_results"]
-            if result["status"] == "fake_draft_confirmed"
-        )
-        self.assertEqual(
-            completed_result["preview_url"],
-            "https://blog.example.test/drafts/draft-000002",
+            if result["status"] == "rewrite_artifact_ready"
         )
         failed_historical = json.loads(historical_path.read_text(encoding="utf-8"))
-        self.assertEqual(failed_historical["blocker"]["kind"], "permanent_failure")
+        self.assertEqual(failed_historical["blocker"]["kind"], "retry_exhausted")
         completed_new = json.loads(
             (
                 self.repository / "tasks" / new_task_id / "task.json"
             ).read_text(encoding="utf-8")
         )
-        self.assertEqual(completed_new["milestone"], "draft_delivery_confirmed")
+        self.assertEqual(completed_new["milestone"], "rewrite_artifact_ready")
         self.assertEqual(
             self.clipboard_record(),
             {"schema_version": 1, "owner_id": None, "text": ""},
@@ -274,7 +268,7 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
         report = Path(second["report_path"]).read_text(encoding="utf-8")
         self.assertIn("Validation scope: core_validated", report)
         self.assertIn(historical_task_id, report)
-        self.assertIn(str(completed_result["preview_url"]), report)
+        self.assertIn("rewrite_artifact_ready", report)
         chat = json.loads(self.chat.read_text(encoding="utf-8"))
         markers = [
             message for message in chat["messages"] if message["kind"] == "batch_marker"

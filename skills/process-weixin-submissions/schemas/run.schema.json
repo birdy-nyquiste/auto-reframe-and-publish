@@ -13,6 +13,9 @@
     "input_window",
     "created_task_ids",
     "attempted_task_ids",
+    "publication_selection",
+    "created_publication_ids",
+    "attempted_publication_ids",
     "recovered_by_run"
   ],
   "properties": {
@@ -25,6 +28,9 @@
     "input_window": {"type": "object", "additionalProperties": true},
     "created_task_ids": {"type": "array", "items": {"type": "string"}},
     "attempted_task_ids": {"type": "array", "items": {"type": "string"}},
+    "publication_selection": {"type": "string", "enum": ["none", "auto"]},
+    "created_publication_ids": {"type": "array", "items": {"type": "string"}},
+    "attempted_publication_ids": {"type": "array", "items": {"type": "string"}},
     "recovered_by_run": {"type": ["string", "null"]}
   },
   "x-status-invariants": {

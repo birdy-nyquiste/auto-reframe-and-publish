@@ -243,17 +243,13 @@ class SecureRewriteArtifactTest(unittest.TestCase):
                 "expand_external_actions",
             ],
         )
-        draft = json.loads(
-            next((self.fake_blog / "drafts").glob("*.json")).read_text("utf-8")
+        manifest = json.loads(
+            (task_directory / "rewrite" / "manifest.json").read_text("utf-8")
         )
         self.assertEqual(
-            draft["request"]["target"]["source_id"], "trusted-author"
+            manifest["trusted_controls"]["target_id"], "trusted-author"
         )
-        self.assertEqual(draft["response"]["state"], "draft_accepted")
-        self.assertEqual(
-            sorted(path.name for path in self.fake_blog.iterdir()),
-            ["drafts", "idempotency", "uploads"],
-        )
+        self.assertEqual(list((self.repository / "publications").iterdir()), [])
         self.assertFalse(command_marker.exists())
         self.assertNotIn(
             "LOCAL_SECRET_MUST_NOT_BE_READ",
@@ -366,68 +362,6 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         self.assertFalse((task_directory / "rewrite" / "manifest.json").exists())
         self.assertFalse((self.fake_blog / "drafts").exists())
 
-    def test_tampered_committed_rewrite_is_not_delivered(self) -> None:
-        self.append_submission()
-        interrupted = run_cli(
-            "run",
-            "--repository",
-            self.repository,
-            "--scripted-chat",
-            self.chat,
-            "--fake-blog-directory",
-            self.fake_blog,
-            "--simulate-interruption-after",
-            "rewrite_artifact_ready",
-        )
-        self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
-        task_directory = next((self.repository / "tasks").iterdir())
-        content_path = task_directory / "rewrite" / "content.md"
-        content_path.write_text("# 被篡改的内容\n", encoding="utf-8")
-
-        result = self.run_intake()
-
-        task = json.loads((task_directory / "task.json").read_text("utf-8"))
-        self.assertEqual(result["task_results"][0]["status"], "permanent_failure")
-        self.assertEqual(task["milestone"], "rewrite_artifact_ready")
-        self.assertEqual(task["blocker"]["operation"], "validate_rewrite_artifact")
-        self.assertEqual(task["blocker"]["error_code"], "rewrite_artifact_invalid")
-        self.assertEqual(content_path.read_text("utf-8"), "# 被篡改的内容\n")
-        self.assertFalse((self.fake_blog / "drafts").exists())
-
-    def test_coordinated_content_and_manifest_tampering_is_not_delivered(self) -> None:
-        self.append_submission()
-        interrupted = run_cli(
-            "run",
-            "--repository",
-            self.repository,
-            "--scripted-chat",
-            self.chat,
-            "--fake-blog-directory",
-            self.fake_blog,
-            "--simulate-interruption-after",
-            "rewrite_artifact_ready",
-        )
-        self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
-        task_directory = next((self.repository / "tasks").iterdir())
-        content_path = task_directory / "rewrite" / "content.md"
-        manifest_path = task_directory / "rewrite" / "manifest.json"
-        content_path.write_text("# 协调篡改后的内容\n", encoding="utf-8")
-        manifest = json.loads(manifest_path.read_text("utf-8"))
-        manifest["title"] = "协调篡改后的标题"
-        manifest["content"]["sha256"] = sha256(content_path)
-        manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        result = self.run_intake()
-
-        task = json.loads((task_directory / "task.json").read_text("utf-8"))
-        self.assertEqual(result["task_results"][0]["status"], "permanent_failure")
-        self.assertEqual(task["blocker"]["operation"], "validate_rewrite_artifact")
-        self.assertEqual(task["blocker"]["error_code"], "rewrite_artifact_invalid")
-        self.assertFalse((self.fake_blog / "drafts").exists())
-
     def test_partial_rewrite_commit_resumes_from_structured_source(self) -> None:
         self.append_submission()
         interrupted = run_cli(
@@ -475,86 +409,9 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         result = self.run_intake()
 
         task = json.loads((task_directory / "task.json").read_text("utf-8"))
-        self.assertEqual(result["task_results"][0]["status"], "fake_draft_confirmed")
-        self.assertEqual(task["milestone"], "draft_delivery_confirmed")
+        self.assertEqual(result["task_results"][0]["status"], "rewrite_artifact_ready")
+        self.assertEqual(task["milestone"], "rewrite_artifact_ready")
         self.assertTrue((task_directory / "rewrite" / "commit.json").exists())
-
-    def test_rewrite_validation_is_a_complete_attempt_on_failure(self) -> None:
-        self.append_submission()
-        interrupted = run_cli(
-            "run",
-            "--repository",
-            self.repository,
-            "--scripted-chat",
-            self.chat,
-            "--fake-blog-directory",
-            self.fake_blog,
-            "--simulate-interruption-after",
-            "rewrite_artifact_ready",
-        )
-        self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
-        task_directory = next((self.repository / "tasks").iterdir())
-        (task_directory / "rewrite" / "manifest.json").write_text(
-            "{}\n", encoding="utf-8"
-        )
-
-        self.run_intake()
-
-        events = [
-            json.loads(path.read_text("utf-8"))
-            for path in sorted((task_directory / "events").glob("*.json"))
-        ]
-        validation_events = [
-            event
-            for event in events
-            if event["operation"] == "validate_rewrite_artifact"
-        ]
-        self.assertEqual(
-            [event["type"] for event in validation_events],
-            ["attempt_started", "attempt_failed"],
-        )
-
-    def test_rewrite_manifest_cannot_redirect_an_image_to_a_local_file(self) -> None:
-        secret = Path(self.temporary_directory.name) / "private-image.bin"
-        secret.write_bytes(b"PRIVATE_IMAGE_MUST_NOT_BE_UPLOADED")
-        self.append_submission(
-            media=[
-                {
-                    "kind": "image",
-                    "mime_type": "image/png",
-                    "capture_method": "original_bytes",
-                    "bytes_base64": "dHJ1c3RlZC1pbWFnZQ==",
-                }
-            ]
-        )
-        interrupted = run_cli(
-            "run",
-            "--repository",
-            self.repository,
-            "--scripted-chat",
-            self.chat,
-            "--fake-blog-directory",
-            self.fake_blog,
-            "--simulate-interruption-after",
-            "rewrite_artifact_ready",
-        )
-        self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
-        task_directory = next((self.repository / "tasks").iterdir())
-        manifest_path = task_directory / "rewrite" / "manifest.json"
-        manifest = json.loads(manifest_path.read_text("utf-8"))
-        manifest["source"]["images"] = [str(secret)]
-        manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        result = self.run_intake()
-
-        task = json.loads((task_directory / "task.json").read_text("utf-8"))
-        self.assertEqual(result["task_results"][0]["status"], "permanent_failure")
-        self.assertEqual(task["blocker"]["error_code"], "rewrite_artifact_invalid")
-        self.assertFalse((self.fake_blog / "drafts").exists())
-
 
 if __name__ == "__main__":
     unittest.main()

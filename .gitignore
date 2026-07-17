@@ -1,3 +1,19 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+.venv/
+.env
+.env.*
+!.env.example
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# The durable task repository and captured evidence stay outside Git.
+weixin-blog-publish-data/
+task-repository/

@@ -38,7 +38,7 @@ Do not hand-edit task-library records, rewrite artifacts, publication requests, 
 - Omitted or explicit `--publication none` must have no Blog side effects and must not require Blog credentials.
 - `--publication auto` immediately publishes this run's newly completed artifacts. Use it only after explicit operator authorization; never use it merely to validate configuration.
 - The LSForum client implements POST plus read-only GET confirmation and deliberately has no DELETE capability. Never blind-retry `outcome_unknown`.
-- Do not claim real WeChat Computer Use, Windows, approved rewriting, controlled live Blog acceptance, production retry budgets, or production readiness.
+- Do not claim real WeChat Computer Use, Windows, approved rewriting, production retry budgets, or production readiness.
 
 ## Complete the operation
 

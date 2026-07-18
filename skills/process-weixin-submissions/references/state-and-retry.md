@@ -23,7 +23,9 @@ Rewrite generation or validation failures stay at `structured_source_ready` with
 
 Publication requests are immutable. Explicit failures and `outcome_unknown` are publication blockers, never content blockers. Because LSForum has no idempotency key, `outcome_unknown` is not eligible for an automatic POST retry.
 
-`--simulate-interruption-after <content-milestone>` is a validation-only scripted option.
+An explicitly authorized `auto` run also reconciles unfinished publication aggregates using their original fixed request. A `request_ready` publication with a fixed adapter destination, durable `prepared` evidence, and no `send_started` evidence may continue with one POST. If `send_started` exists, recovery performs confirmation GET only. An exact public match commits `publication_confirmed`; absence, conflict, or an inconclusive lookup commits `outcome_unknown`. Legacy requests without a fixed destination are blocked without network access. A `none` run never resumes publication work.
+
+`--simulate-interruption-after <milestone>` is validation-only. In addition to content milestones, `publication_request_ready` simulates a definitely pre-send interruption, `publication_send_started` simulates an interruption after the external call may have begun, and `publication_response_received` simulates a successful POST whose response has not yet been committed locally.
 
 ## Retry
 

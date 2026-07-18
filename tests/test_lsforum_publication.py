@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -182,7 +183,7 @@ class LsforumPublicationTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def run_auto(self) -> dict[str, Any]:
+    def run_auto(self, *extra: object) -> dict[str, Any]:
         result = run_cli(
             "run",
             "--repository",
@@ -193,6 +194,7 @@ class LsforumPublicationTest(unittest.TestCase):
             "auto",
             "--blog-config",
             self.config,
+            *extra,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return cast(dict[str, Any], json.loads(result.stdout))
@@ -214,6 +216,319 @@ class LsforumPublicationTest(unittest.TestCase):
         for path in self.repository.rglob("*"):
             if path.is_file():
                 self.assertNotIn(b"super-secret-test-key", path.read_bytes())
+
+    def test_non_ascii_api_key_blocks_before_http_and_persists_no_secret(
+        self,
+    ) -> None:
+        invalid_key = "“super-secret-test-key”"
+        os.environ["LSFORUM_TEST_KEY"] = invalid_key
+
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            self.append_submission()
+            result = self.run_auto()
+
+        publication = result["publication_results"][0]
+        self.assertEqual(publication["status"], "needs_configuration")
+        self.assertEqual(publication["blocker_reason"], "api_key_invalid_format")
+        self.assertEqual(blog.requests, [])
+        for path in self.repository.rglob("*"):
+            if path.is_file():
+                self.assertNotIn(invalid_key.encode("utf-8"), path.read_bytes())
+
+    def test_interrupted_request_ready_publication_resumes_once_with_same_slug(
+        self,
+    ) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            self.append_submission()
+            interrupted = run_cli(
+                "run",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--publication",
+                "auto",
+                "--blog-config",
+                self.config,
+                "--simulate-interruption-after",
+                "publication_request_ready",
+            )
+            self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
+            self.assertEqual(blog.requests, [])
+
+            publication_directories = list(
+                (self.repository / "publications").iterdir()
+            )
+            self.assertEqual(len(publication_directories), 1)
+            publication_id = publication_directories[0].name
+            before = json.loads(
+                (publication_directories[0] / "publication.json").read_text("utf-8")
+            )
+            self.assertEqual(before["milestone"], "request_ready")
+            fixed_slug = before["slug"]
+            origin_run_id = before["created_in_run"]
+
+            resumed = self.run_auto()
+
+        self.assertEqual(len(resumed["publication_results"]), 1)
+        recovered = resumed["publication_results"][0]
+        self.assertEqual(recovered["publication_id"], publication_id)
+        self.assertEqual(recovered["status"], "publication_confirmed")
+        after = json.loads(
+            (publication_directories[0] / "publication.json").read_text("utf-8")
+        )
+        self.assertEqual(after["slug"], fixed_slug)
+        self.assertEqual(after["milestone"], "publication_confirmed")
+        self.assertEqual(
+            len([request for request in blog.requests if request["method"] == "POST"]),
+            1,
+        )
+        resumed_run = json.loads(
+            (
+                self.repository / "runs" / resumed["run_id"] / "run.json"
+            ).read_text("utf-8")
+        )
+        self.assertEqual(resumed_run["created_publication_ids"], [])
+        self.assertEqual(resumed_run["attempted_publication_ids"], [publication_id])
+        origin_run = json.loads(
+            (self.repository / "runs" / origin_run_id / "run.json").read_text(
+                "utf-8"
+            )
+        )
+        self.assertEqual(origin_run["created_publication_ids"], [publication_id])
+        self.assertEqual(origin_run["attempted_publication_ids"], [])
+        self.assertEqual(origin_run["recovered_by_run"], resumed["run_id"])
+        origin_report = (
+            self.repository / "runs" / origin_run_id / "report.md"
+        ).read_text("utf-8")
+        self.assertIn(publication_id, origin_report)
+
+    def test_interrupted_send_started_publication_is_confirmed_without_repost(
+        self,
+    ) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            self.append_submission()
+            interrupted = run_cli(
+                "run",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--publication",
+                "auto",
+                "--blog-config",
+                self.config,
+                "--simulate-interruption-after",
+                "publication_send_started",
+            )
+            self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
+            self.assertEqual(blog.requests, [])
+
+            resumed = self.run_auto()
+            repeated = self.run_auto()
+
+        self.assertEqual(len(resumed["publication_results"]), 1)
+        publication = resumed["publication_results"][0]
+        self.assertEqual(publication["status"], "outcome_unknown")
+        self.assertEqual(
+            publication["blocker_reason"], "publication_outcome_unknown"
+        )
+        self.assertEqual(repeated["publication_results"], [])
+        self.assertEqual(
+            len([request for request in blog.requests if request["method"] == "POST"]),
+            0,
+        )
+        self.assertEqual(
+            len([request for request in blog.requests if request["method"] == "GET"]),
+            1,
+        )
+
+    def test_corrupted_fixed_request_is_isolated_from_a_new_publication(
+        self,
+    ) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            self.append_submission()
+            interrupted = run_cli(
+                "run",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--publication",
+                "auto",
+                "--blog-config",
+                self.config,
+                "--simulate-interruption-after",
+                "publication_request_ready",
+            )
+            self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
+            old_publication_directory = next(
+                (self.repository / "publications").iterdir()
+            )
+            old_publication_id = old_publication_directory.name
+            corrupted_request = json.loads(
+                (old_publication_directory / "request.json").read_text("utf-8")
+            )
+            corrupted_request["body_markdown"] = "# Corrupted content"
+            (old_publication_directory / "request.json").write_text(
+                json.dumps(corrupted_request), encoding="utf-8"
+            )
+
+            chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
+            chat["messages"].extend(
+                [
+                    {
+                        "message_id": "h-new",
+                        "kind": "text",
+                        "text": "#投稿\n目标: writer-one",
+                    },
+                    {
+                        "message_id": "a-new",
+                        "kind": "official_account_article",
+                        "title": "A new title",
+                        "body": "A new copied source body.",
+                        "source_url": "https://example.com/new-source",
+                        "images": [],
+                    },
+                ]
+            )
+            self.chat.write_text(json.dumps(chat), encoding="utf-8")
+
+            resumed = self.run_auto()
+
+        results = {
+            result["publication_id"]: result
+            for result in resumed["publication_results"]
+        }
+        self.assertEqual(
+            results[old_publication_id]["status"], "permanent_failure"
+        )
+        self.assertEqual(
+            results[old_publication_id]["blocker_reason"],
+            "publication_integrity_failed",
+        )
+        confirmed = [
+            result
+            for publication_id, result in results.items()
+            if publication_id != old_publication_id
+        ]
+        self.assertEqual(len(confirmed), 1)
+        self.assertEqual(confirmed[0]["status"], "publication_confirmed")
+        self.assertEqual(
+            len([request for request in blog.requests if request["method"] == "POST"]),
+            1,
+        )
+
+    def test_accepted_post_is_confirmed_after_response_persistence_interruption(
+        self,
+    ) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            self.append_submission()
+            interrupted = run_cli(
+                "run",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--publication",
+                "auto",
+                "--blog-config",
+                self.config,
+                "--simulate-interruption-after",
+                "publication_response_received",
+            )
+            self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
+            self.assertEqual(
+                len(
+                    [
+                        request
+                        for request in blog.requests
+                        if request["method"] == "POST"
+                    ]
+                ),
+                1,
+            )
+            publication_directory = next(
+                (self.repository / "publications").iterdir()
+            )
+            publication_id = publication_directory.name
+            before = json.loads(
+                (publication_directory / "publication.json").read_text("utf-8")
+            )
+            self.assertEqual(before["milestone"], "request_ready")
+            self.assertFalse((publication_directory / "response.json").exists())
+
+            resumed = self.run_auto()
+
+        self.assertEqual(len(resumed["publication_results"]), 1)
+        recovered = resumed["publication_results"][0]
+        self.assertEqual(recovered["publication_id"], publication_id)
+        self.assertEqual(recovered["status"], "publication_confirmed")
+        self.assertEqual(
+            len([request for request in blog.requests if request["method"] == "POST"]),
+            1,
+        )
+
+    def test_legacy_request_without_fixed_destination_makes_no_http_request(
+        self,
+    ) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            self.append_submission()
+            interrupted = run_cli(
+                "run",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--publication",
+                "auto",
+                "--blog-config",
+                self.config,
+                "--simulate-interruption-after",
+                "publication_request_ready",
+            )
+            self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
+            publication_directory = next(
+                (self.repository / "publications").iterdir()
+            )
+            publication = json.loads(
+                (publication_directory / "publication.json").read_text("utf-8")
+            )
+            request = json.loads(
+                (publication_directory / "request.json").read_text("utf-8")
+            )
+            request["contract_version"] = 1
+            request.pop("destination")
+            request_bytes = (
+                json.dumps(request, ensure_ascii=False, indent=2) + "\n"
+            ).encode("utf-8")
+            (publication_directory / "request.json").write_bytes(request_bytes)
+            attempt_directory = (
+                publication_directory / "attempts" / publication["created_in_run"]
+            )
+            (attempt_directory / "request.json").write_bytes(request_bytes)
+            prepared = json.loads(
+                (attempt_directory / "prepared.json").read_text("utf-8")
+            )
+            prepared["request_sha256"] = hashlib.sha256(request_bytes).hexdigest()
+            (attempt_directory / "prepared.json").write_text(
+                json.dumps(prepared, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            resumed = self.run_auto()
+
+        self.assertEqual(len(resumed["publication_results"]), 1)
+        result = resumed["publication_results"][0]
+        self.assertEqual(result["status"], "permanent_failure")
+        self.assertEqual(result["blocker_reason"], "publication_integrity_failed")
+        self.assertEqual(blog.requests, [])
 
     def test_unknown_post_outcome_is_not_automatically_reposted(self) -> None:
         with LocalBlog(mode="disconnect") as blog:

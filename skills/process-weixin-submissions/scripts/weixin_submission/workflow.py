@@ -10,7 +10,12 @@ from .capture import (
     rebuild_structured_source,
 )
 from .protocol import IntakeCandidate, parse_input_window
-from .publication import FakePublicationAdapter, PublicationAdapter, publish_rewrite
+from .publication import (
+    FakePublicationAdapter,
+    PublicationAdapter,
+    publish_rewrite,
+    resume_ready_publications,
+)
 from .lsforum_blog import LsforumPublicationAdapter
 from .retry_policy import retry_budget
 from .rewrite import (
@@ -55,7 +60,6 @@ MISSING_CAPABILITIES = (
     "Windows Computer Use",
     "approved rewrite policy",
     "real Agent rewrite generation",
-    "controlled live LSForum publication acceptance",
 )
 
 
@@ -244,6 +248,7 @@ def _run_candidates(
     started_at = str(run_record["started_at"])
     reconcile_task_projections(repository)
     recovered_run_ids = _recover_processing_runs(repository, run_id)
+    _reconcile_publication_run_links(repository)
 
     for task_id, candidate in zip(created_task_ids, candidates):
         task_directory = repository / "tasks" / task_id
@@ -342,9 +347,31 @@ def _run_candidates(
                 publication_adapter = LsforumPublicationAdapter(blog_config)
             else:
                 raise WorkflowError("Automatic publication has no Blog adapter")
+            for publication_id, publication_result in resume_ready_publications(
+                repository, run_id, publication_adapter
+            ):
+                if publication_id not in run_record["attempted_publication_ids"]:
+                    run_record["attempted_publication_ids"].append(publication_id)
+                _link_recovered_publication_run(
+                    repository, publication_id, run_id, recovered_run_ids
+                )
+                save_record("run", run_directory / "run.json", run_record)
+                publication_results.append(publication_result)
             for task_id in newly_ready_task_ids:
                 publication_id, publication_result = publish_rewrite(
-                    repository, task_id, run_id, publication_adapter
+                    repository,
+                    task_id,
+                    run_id,
+                    publication_adapter,
+                    before_send=lambda: _maybe_interrupt(
+                        simulate_interruption_after, "publication_request_ready"
+                    ),
+                    after_send_started=lambda: _maybe_interrupt(
+                        simulate_interruption_after, "publication_send_started"
+                    ),
+                    after_response_received=lambda: _maybe_interrupt(
+                        simulate_interruption_after, "publication_response_received"
+                    ),
                 )
                 run_record["created_publication_ids"].append(publication_id)
                 run_record["attempted_publication_ids"].append(publication_id)
@@ -831,6 +858,65 @@ def _recover_processing_runs(repository: Path, current_run_id: str) -> list[str]
     return recovered
 
 
+def _reconcile_publication_run_links(repository: Path) -> None:
+    for publication_directory in sorted((repository / "publications").iterdir()):
+        if not publication_directory.is_dir():
+            continue
+        try:
+            publication = load_record(
+                "publication", publication_directory / "publication.json"
+            )
+            origin_run_id = str(publication["created_in_run"])
+            origin_path = repository / "runs" / origin_run_id / "run.json"
+            origin = load_record("run", origin_path)
+        except (WorkflowError, SchemaValidationError, OSError):
+            continue
+        publication_id = str(publication["publication_id"])
+        changed = False
+        if publication_id not in origin["created_publication_ids"]:
+            origin["created_publication_ids"].append(publication_id)
+            changed = True
+        origin_attempt = publication_directory / "attempts" / origin_run_id
+        if (
+            (origin_attempt / "send-started.json").exists()
+            and publication_id not in origin["attempted_publication_ids"]
+        ):
+            origin["attempted_publication_ids"].append(publication_id)
+            changed = True
+        if changed:
+            save_record("run", origin_path, origin)
+
+
+def _link_recovered_publication_run(
+    repository: Path,
+    publication_id: str,
+    current_run_id: str,
+    recovered_run_ids: list[str],
+) -> None:
+    try:
+        publication = load_record(
+            "publication",
+            repository / "publications" / publication_id / "publication.json",
+        )
+    except (WorkflowError, SchemaValidationError, OSError):
+        return
+    origin_run_id = str(publication["created_in_run"])
+    if origin_run_id == current_run_id:
+        return
+    origin_path = repository / "runs" / origin_run_id / "run.json"
+    origin = load_record("run", origin_path)
+    if origin["status"] != "interrupted":
+        return
+    origin["recovered_by_run"] = current_run_id
+    save_record("run", origin_path, origin)
+    write_text(
+        origin_path.with_name("report.md"),
+        _render_recovered_report(origin),
+    )
+    if origin_run_id not in recovered_run_ids:
+        recovered_run_ids.append(origin_run_id)
+
+
 def _render_interrupted_report(run_record: dict[str, Any], reason: str) -> str:
     return "\n".join(
         [
@@ -857,6 +943,8 @@ def _render_recovered_report(run_record: dict[str, Any]) -> str:
             f"- Recovered by run: {run_record['recovered_by_run']}",
             f"- Created tasks: {', '.join(run_record['created_task_ids']) or 'none'}",
             f"- Attempted tasks: {', '.join(run_record['attempted_task_ids']) or 'none'}",
+            f"- Created publications: {', '.join(run_record['created_publication_ids']) or 'none'}",
+            f"- Attempted publications: {', '.join(run_record['attempted_publication_ids']) or 'none'}",
             "",
         ]
     )

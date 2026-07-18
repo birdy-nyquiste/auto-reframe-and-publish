@@ -61,7 +61,12 @@ def create_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--simulate-interruption-after",
-        choices=milestones(),
+        choices=(
+            *milestones(),
+            "publication_request_ready",
+            "publication_send_started",
+            "publication_response_received",
+        ),
     )
 
     status = subparsers.add_parser("status", help="Read task repository status.")

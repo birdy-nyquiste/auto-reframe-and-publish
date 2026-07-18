@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "publication-attempt-marker.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "phase", "request_sha256"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "phase": {
+      "type": "string",
+      "enum": ["prepared", "send_started", "confirmation_started"]
+    },
+    "request_sha256": {"type": "string"}
+  }
+}

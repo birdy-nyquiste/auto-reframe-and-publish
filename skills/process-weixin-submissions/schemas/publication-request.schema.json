@@ -6,7 +6,7 @@
   "required": ["schema_version", "contract_version", "operation", "publication_id", "slug", "target", "title", "body_markdown", "images", "adapter"],
   "properties": {
     "schema_version": {"type": "integer", "const": 2},
-    "contract_version": {"type": "integer", "const": 1},
+    "contract_version": {"type": "integer", "enum": [1, 2]},
     "operation": {"type": "string", "const": "publish_post"},
     "publication_id": {"type": "string"},
     "slug": {"type": "string"},
@@ -22,6 +22,7 @@
     "title": {"type": "string"},
     "body_markdown": {"type": "string"},
     "images": {"type": "array", "items": {"type": "string"}},
-    "adapter": {"type": "string"}
+    "adapter": {"type": "string"},
+    "destination": {"type": "string"}
   }
 }

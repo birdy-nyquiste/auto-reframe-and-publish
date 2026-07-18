@@ -49,6 +49,10 @@ class LsforumPublicationAdapter:
     def adapter_id(self) -> str:
         return "lsforum_v1"
 
+    @property
+    def destination_id(self) -> str:
+        return self.base_url
+
     def map_target(self, source_id: str) -> dict[str, Any]:
         mapped = self.targets.get(source_id)
         if not isinstance(mapped, dict):
@@ -104,13 +108,28 @@ class LsforumPublicationAdapter:
             )
         return dict(mapped)
 
-    def publish(self, request: dict[str, Any]) -> object:
-        api_key = os.environ.get(self.api_key_env, "").strip()
-        if not api_key:
+    def validate_request(self, request: dict[str, Any]) -> None:
+        api_key = os.environ.get(self.api_key_env, "")
+        if not api_key.strip():
             raise PublicationError(
                 PublicationBlockerKind.NEEDS_CONFIGURATION,
                 "api_key_missing",
                 f"Runtime secret {self.api_key_env} is missing",
+            )
+        if (
+            api_key != api_key.strip()
+            or not api_key.isascii()
+            or any(ord(character) < 33 or ord(character) > 126 for character in api_key)
+            or api_key[0] in "\"'"
+            or api_key[-1] in "\"'"
+        ):
+            raise PublicationError(
+                PublicationBlockerKind.NEEDS_CONFIGURATION,
+                "api_key_invalid_format",
+                (
+                    f"Runtime secret {self.api_key_env} must be an unquoted "
+                    "printable ASCII value without surrounding whitespace"
+                ),
             )
         title = request.get("title")
         content = request.get("body_markdown")
@@ -126,6 +145,10 @@ class LsforumPublicationAdapter:
                 "publication_request_invalid",
                 "Blog content must be non-empty Markdown",
             )
+
+    def publish(self, request: dict[str, Any]) -> object:
+        self.validate_request(request)
+        api_key = os.environ[self.api_key_env]
         existing = self._get_slug(str(request["slug"]), preflight=True)
         if existing is not None:
             return self._recovered_response(request, existing)
@@ -186,6 +209,16 @@ class LsforumPublicationAdapter:
                 f"Expected HTTP 201, got {status}",
             )
         return _json_object(body, "Blog POST response")
+
+    def confirm(self, request: dict[str, Any]) -> object:
+        existing = self._get_slug(str(request["slug"]), preflight=False)
+        if existing is None:
+            raise PublicationError(
+                PublicationBlockerKind.OUTCOME_UNKNOWN,
+                "publication_outcome_unknown",
+                "The prior Blog publication attempt could not be confirmed",
+            )
+        return self._recovered_response(request, existing, unknown_outcome=True)
 
     def normalize_response(self, raw_response: object) -> dict[str, Any]:
         if not isinstance(raw_response, dict):

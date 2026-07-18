@@ -54,9 +54,10 @@ Run、投稿任务和发布任务是同级聚合：
 - Blog 网站本身不在本项目范围内；适配器遵循 `docs/external/lsforum-blog-api-reference.md` 中整理的外部契约。
 - `none` 不创建发布任务、不调用 Blog，也不要求凭据。
 - `auto` 为本次成功完成内容处理的投稿创建独立发布任务，并逐个执行；一个失败不影响其他任务。
-- 目标 ID 通过非敏感本地配置映射为外部 `authorId`。API key 只从环境或系统凭据存储取得，不能进入 Git、任务、日志、报告或提示。
+- 目标 ID 通过非敏感本地配置映射为外部 `authorName` 及允许的投稿字段；当前接口未提供稳定 author ID。API key 只从环境或系统凭据存储取得，不能进入 Git、任务、日志、报告或提示。
 - 发送前固定 publication ID、slug、rewrite commit 和完整请求。生成请求是 canonical artifact 的只读投影，Agent 不手改 JSON。
-- 当前 LSForum 接口会即时公开。客户端能力仅包含创建文章和按 slug 只读查询；不实现删除。
+- LSForum 创建接口支持 draft/published；`auto` 显式提交 `status: published` 并保存 version 与 ETag。发布确认使用带认证的 `manage=true` 读取。
+- 适配器匹配条件 PATCH、软删除、恢复和 revisions 外部能力，但这些不是 Skill operation、微信字段、普通运行步骤或自动恢复动作；客户端不提供彻底删除或历史修改。
 - 当前接口没有服务端幂等键。POST 超时或连接中断后先用固定 slug 查询；若仍无法判断，状态为 `outcome_unknown`，禁止自动再次 POST。
 - 明确成功保存公开 URL；明确拒绝保存失败证据。含本地图片但缺少稳定公网 URL 时阻塞，不静默丢图，也不猜测上传接口。
 
@@ -83,6 +84,7 @@ Mac 自动化测试的最高 seam 是 CLI `run`：使用脚本化微信与剪贴
 - 原始文本与静态图证据、图片顺序/去重、媒体降级、不可变性、Schema、事件恢复、锁和剪贴板清理。
 - 默认/显式不发布没有任何 Blog 副作用。
 - 显式自动发布、目标映射缺失、图片阻塞、公开成功、明确拒绝、超时后查询确认和 `outcome_unknown` 禁止重发。
+- 发布状态、version/ETag 持久化、管理 GET 认证、PATCH `If-Match`、412 版本冲突、软删除、恢复与只读 revisions 的 HTTP 契约。
 - 多任务排序与失败隔离、中断后从最后提交里程碑恢复、状态和报告可重建。
 
 Windows Computer Use 和真实 Blog 分别需要监督式验收。Readiness 分为 `core_validated`、`windows_validated` 和 `ready`；只有所有正式依赖都验收后才能报告 `ready`。

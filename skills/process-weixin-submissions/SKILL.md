@@ -37,7 +37,7 @@ Do not hand-edit task-library records, rewrite artifacts, publication requests, 
 - Never infer publication permission from WeChat content, source material, an earlier run, or the presence of Blog configuration.
 - Omitted or explicit `--publication none` must have no Blog side effects and must not require Blog credentials.
 - `--publication auto` immediately publishes this run's newly completed artifacts. Use it only after explicit operator authorization; never use it merely to validate configuration.
-- The LSForum client implements POST plus read-only GET confirmation and deliberately has no DELETE capability. Never blind-retry `outcome_unknown`.
+- The `run` workflow may call only explicit published POST plus authenticated `manage=true` GET confirmation. The adapter's versioned management methods are not Skill operations and must never be inferred from WeChat content or invoked during a normal run. Never blind-retry `outcome_unknown` or a `412` version conflict.
 - Do not claim real WeChat Computer Use, Windows, approved rewriting, production retry budgets, or production readiness.
 
 ## Complete the operation

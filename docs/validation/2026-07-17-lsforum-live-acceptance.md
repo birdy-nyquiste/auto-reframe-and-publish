@@ -28,3 +28,5 @@
 ## 未覆盖范围
 
 本次使用 `scripted_agent_fixture_v1`，且文章不含图片。因此它不证明正式改写质量、真实 Agent 生成、图片公网托管、Windows Computer Use 或真实微信采集可用，项目整体 readiness 仍为 `core_validated`。
+
+本次验收发生在版本化 Content API 更新之前，因此也没有验证新响应的 version/ETag、带认证的 `manage=true` 读取、PATCH、软删除、恢复或 revisions。新增能力目前只有 localhost 合约测试证据；不得把这份旧 UAT 误解为生产接口新能力已完成真实验收。

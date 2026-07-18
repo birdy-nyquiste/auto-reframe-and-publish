@@ -11,10 +11,17 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "skills/process-weixin-submissions/scripts/process_weixin_submissions.py"
+SCRIPTS = CLI.parent
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from weixin_submission.lsforum_blog import LsforumPublicationAdapter
+from weixin_submission.publication import PublicationError
 
 
 def run_cli(*arguments: object) -> subprocess.CompletedProcess[str]:
@@ -31,23 +38,47 @@ class LocalBlog:
     def __init__(self, mode: str = "success") -> None:
         self.mode = mode
         self.posts: dict[str, dict[str, Any]] = {}
+        self.revisions: dict[str, list[dict[str, Any]]] = {}
         self.requests: list[dict[str, Any]] = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
-                slug = self.path.rsplit("/", 1)[-1]
-                owner.requests.append({"method": "GET", "path": self.path})
+                parsed = urlparse(self.path)
+                parts = parsed.path.rstrip("/").split("/")
+                slug = parts[-2] if parts[-1] == "revisions" else parts[-1]
+                owner.requests.append(
+                    {
+                        "method": "GET",
+                        "path": self.path,
+                        "authorization": self.headers.get("Authorization"),
+                    }
+                )
+                if parts[-1] == "revisions":
+                    self._json(200, owner.revisions.get(slug, []))
+                    return
                 post = owner.posts.get(slug)
                 if post is None:
                     self.send_response(404)
                     self.end_headers()
                     return
-                self._json(200, {**post, "slug": slug, "url": owner.public_url(slug)})
+                manage = parse_qs(parsed.query).get("manage") == ["true"]
+                if (post.get("status") != "published" or post.get("deleted")) and not manage:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self._json(
+                    200,
+                    {**post, "slug": slug, "url": owner.public_url(slug)},
+                    etag=(
+                        None
+                        if owner.mode == "manage_without_etag"
+                        else f'"{post["version"]}"'
+                    ),
+                )
 
             def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", "0"))
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                payload = self._request_body()
                 owner.requests.append(
                     {
                         "method": "POST",
@@ -56,6 +87,19 @@ class LocalBlog:
                         "payload": payload,
                     }
                 )
+                if self.path.endswith("/restore"):
+                    slug = self.path.rstrip("/").split("/")[-2]
+                    post = owner.posts.get(slug)
+                    if post is None:
+                        self._json(404, {"message": "Post not found"})
+                        return
+                    post["deleted"] = False
+                    post["version"] += 1
+                    owner.revisions.setdefault(slug, []).append(
+                        {"operation": "restore", "version": post["version"]}
+                    )
+                    self._json(200, post, etag=f'"{post["version"]}"')
+                    return
                 if owner.mode == "reject":
                     self._json(400, {"message": "Payload was rejected"})
                     return
@@ -63,6 +107,8 @@ class LocalBlog:
                     owner.posts[payload["slug"]] = {
                         **payload,
                         "content": "Different content under the same slug",
+                        "version": 1,
+                        "deleted": False,
                     }
                 if owner.mode == "disconnect":
                     self.connection.shutdown(2)
@@ -72,7 +118,15 @@ class LocalBlog:
                     self.connection.shutdown(2)
                     self.connection.close()
                     return
-                owner.posts[payload["slug"]] = payload
+                owner.posts[payload["slug"]] = {
+                    **payload,
+                    "status": payload.get("status", "published"),
+                    "version": 1,
+                    "deleted": False,
+                }
+                owner.revisions[payload["slug"]] = [
+                    {"operation": "create", "version": 1}
+                ]
                 self._json(
                     201,
                     {
@@ -80,14 +134,73 @@ class LocalBlog:
                         "slug": payload["slug"],
                         "url": owner.public_url(payload["slug"]),
                         "item": {"kind": "external", "slug": payload["slug"]},
+                        "version": 1,
                     },
+                    etag='"1"',
                 )
 
-            def _json(self, status: int, value: dict[str, Any]) -> None:
+            def do_PATCH(self) -> None:
+                slug = urlparse(self.path).path.rstrip("/").split("/")[-1]
+                payload = self._request_body()
+                owner.requests.append(
+                    {
+                        "method": "PATCH",
+                        "path": self.path,
+                        "authorization": self.headers.get("Authorization"),
+                        "if_match": self.headers.get("If-Match"),
+                        "payload": payload,
+                    }
+                )
+                post = owner.posts.get(slug)
+                if post is None:
+                    self._json(404, {"message": "Post not found"})
+                    return
+                if self.headers.get("If-Match") != f'"{post["version"]}"':
+                    self._json(412, {"message": "Version is stale"})
+                    return
+                post.update(payload)
+                post["version"] += 1
+                owner.revisions.setdefault(slug, []).append(
+                    {"operation": "update", "version": post["version"]}
+                )
+                self._json(200, post, etag=f'"{post["version"]}"')
+
+            def do_DELETE(self) -> None:
+                slug = urlparse(self.path).path.rstrip("/").split("/")[-1]
+                owner.requests.append(
+                    {
+                        "method": "DELETE",
+                        "path": self.path,
+                        "authorization": self.headers.get("Authorization"),
+                    }
+                )
+                post = owner.posts.get(slug)
+                if post is None:
+                    self._json(404, {"message": "Post not found"})
+                    return
+                post["deleted"] = True
+                post["version"] += 1
+                owner.revisions.setdefault(slug, []).append(
+                    {"operation": "delete", "version": post["version"]}
+                )
+                self._json(200, post, etag=f'"{post["version"]}"')
+
+            def _request_body(self) -> dict[str, Any]:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length == 0:
+                    return {}
+                value = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(value, dict):
+                    raise AssertionError("Expected a JSON object")
+                return value
+
+            def _json(self, status: int, value: object, etag: str | None = None) -> None:
                 body = json.dumps(value).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
+                if etag is not None:
+                    self.send_header("ETag", etag)
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -212,10 +325,120 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertEqual(posts[0]["authorization"], "Bearer super-secret-test-key")
         self.assertEqual(posts[0]["payload"]["authorName"], "Writer One")
         self.assertEqual(posts[0]["payload"]["category"], "Community")
+        self.assertEqual(posts[0]["payload"]["status"], "published")
         self.assertIn("content", posts[0]["payload"])
+        lookups = [request for request in blog.requests if request["method"] == "GET"]
+        self.assertEqual(len(lookups), 1)
+        self.assertEqual(lookups[0]["authorization"], "Bearer super-secret-test-key")
+        self.assertTrue(lookups[0]["path"].endswith("?manage=true"))
+        publication_record = json.loads(
+            (
+                self.repository
+                / "publications"
+                / publication["publication_id"]
+                / "publication.json"
+            ).read_text("utf-8")
+        )
+        self.assertEqual(publication_record["external_result"]["content_status"], "published")
+        self.assertEqual(publication_record["external_result"]["version"], 1)
+        self.assertEqual(publication_record["external_result"]["etag"], '"1"')
         for path in self.repository.rglob("*"):
             if path.is_file():
                 self.assertNotIn(b"super-secret-test-key", path.read_bytes())
+
+    def test_versioned_management_requests_use_auth_and_if_match(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            blog.posts["managed-post"] = {
+                "slug": "managed-post",
+                "title": "Original",
+                "content": "Body",
+                "authorName": "Writer One",
+                "status": "draft",
+                "version": 3,
+                "deleted": False,
+            }
+            blog.revisions["managed-post"] = [
+                {"operation": "create", "version": 1}
+            ]
+
+            managed = adapter.get_managed_post("managed-post")
+            updated = adapter.patch_post(
+                "managed-post", {"title": "Updated"}, version=3
+            )
+            with self.assertRaises(PublicationError) as stale:
+                adapter.patch_post("managed-post", {"title": "Stale"}, version=3)
+            deleted = adapter.soft_delete_post("managed-post")
+            restored = adapter.restore_post("managed-post")
+            revisions = adapter.list_revisions("managed-post")
+
+        self.assertEqual(managed["body"]["status"], "draft")
+        self.assertEqual(managed["body"]["version"], 3)
+        self.assertEqual(updated["headers"]["etag"], '"4"')
+        self.assertEqual(stale.exception.code, "blog_version_conflict")
+        self.assertTrue(deleted["body"]["deleted"])
+        self.assertFalse(restored["body"]["deleted"])
+        self.assertEqual(len(revisions["body"]), 4)
+
+        for request in blog.requests:
+            self.assertEqual(
+                request["authorization"], "Bearer super-secret-test-key"
+            )
+        patches = [request for request in blog.requests if request["method"] == "PATCH"]
+        self.assertEqual([request["if_match"] for request in patches], ['"3"', '"3"'])
+        self.assertTrue(blog.requests[0]["path"].endswith("?manage=true"))
+        self.assertTrue(blog.requests[-1]["path"].endswith("/revisions"))
+
+    def test_management_validation_blocks_unsafe_patch_without_http(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            with self.assertRaises(PublicationError) as unsupported:
+                adapter.patch_post("managed-post", {"slug": "replacement"}, version=1)
+            with self.assertRaises(PublicationError) as invalid_version:
+                adapter.patch_post("managed-post", {"title": "Updated"}, version='1"')
+
+        self.assertEqual(unsupported.exception.code, "publication_request_invalid")
+        self.assertEqual(invalid_version.exception.code, "publication_request_invalid")
+        self.assertEqual(blog.requests, [])
+
+    def test_confirmation_without_required_key_remains_configuration_blocked(
+        self,
+    ) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            os.environ.pop("LSFORUM_TEST_KEY")
+            with self.assertRaises(PublicationError) as missing_key:
+                adapter.confirm({"slug": "managed-post"})
+
+        self.assertEqual(missing_key.exception.blocker_kind.value, "needs_configuration")
+        self.assertEqual(missing_key.exception.code, "api_key_missing")
+        self.assertEqual(blog.requests, [])
+
+    def test_confirmation_requires_explicit_undeleted_state(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            blog.posts["managed-post"] = {
+                "slug": "managed-post",
+                "title": "Original",
+                "content": "Body",
+                "authorName": "Writer One",
+                "status": "published",
+                "version": 1,
+            }
+            request = {
+                "slug": "managed-post",
+                "title": "Original",
+                "body_markdown": "Body",
+                "target": {"mapped_fields": {"authorName": "Writer One"}},
+            }
+            with self.assertRaises(PublicationError) as ambiguous:
+                adapter.confirm(request)
+
+        self.assertEqual(ambiguous.exception.code, "publication_outcome_unknown")
 
     def test_non_ascii_api_key_blocks_before_http_and_persists_no_secret(
         self,
@@ -473,6 +696,40 @@ class LsforumPublicationTest(unittest.TestCase):
             len([request for request in blog.requests if request["method"] == "POST"]),
             1,
         )
+
+    def test_recovery_derives_concurrency_etag_when_manage_get_omits_header(
+        self,
+    ) -> None:
+        with LocalBlog(mode="manage_without_etag") as blog:
+            self.write_config(blog)
+            self.append_submission()
+            interrupted = run_cli(
+                "run",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--publication",
+                "auto",
+                "--blog-config",
+                self.config,
+                "--simulate-interruption-after",
+                "publication_response_received",
+            )
+            self.assertEqual(interrupted.returncode, 2, interrupted.stderr)
+            resumed = self.run_auto()
+
+        result = resumed["publication_results"][0]
+        publication = json.loads(
+            (
+                self.repository
+                / "publications"
+                / result["publication_id"]
+                / "publication.json"
+            ).read_text("utf-8")
+        )
+        self.assertEqual(publication["external_result"]["version"], 1)
+        self.assertEqual(publication["external_result"]["etag"], '"1"')
 
     def test_legacy_request_without_fixed_destination_makes_no_http_request(
         self,

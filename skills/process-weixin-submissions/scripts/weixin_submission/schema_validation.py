@@ -112,17 +112,27 @@ def _validate(
 ) -> None:
     reference = schema.get("$ref")
     if reference is not None:
-        if not isinstance(reference, str) or not reference.startswith("#/$defs/"):
+        if not isinstance(reference, str):
             raise SchemaValidationError(f"{location}: unsupported $ref {reference!r}")
-        definitions = root_schema.get("$defs")
-        definition_name = reference.removeprefix("#/$defs/")
-        definition = (
-            definitions.get(definition_name) if isinstance(definitions, dict) else None
-        )
-        if not isinstance(definition, dict):
-            raise SchemaValidationError(f"{location}: unresolved $ref {reference!r}")
-        _validate(value, definition, location, root_schema)
-        return
+        if reference.startswith("#/$defs/"):
+            definitions = root_schema.get("$defs")
+            definition_name = reference.removeprefix("#/$defs/")
+            definition = (
+                definitions.get(definition_name)
+                if isinstance(definitions, dict)
+                else None
+            )
+            if not isinstance(definition, dict):
+                raise SchemaValidationError(
+                    f"{location}: unresolved $ref {reference!r}"
+                )
+            _validate(value, definition, location, root_schema)
+            return
+        if reference.endswith(".schema.json") and "/" not in reference:
+            referenced_schema = load_schema(reference.removesuffix(".schema.json"))
+            _validate(value, referenced_schema, location, referenced_schema)
+            return
+        raise SchemaValidationError(f"{location}: unsupported $ref {reference!r}")
 
     if "oneOf" in schema:
         alternatives = schema["oneOf"]

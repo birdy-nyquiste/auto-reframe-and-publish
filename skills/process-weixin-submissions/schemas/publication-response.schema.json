@@ -3,12 +3,15 @@
   "$id": "publication-response.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["external_id", "status", "public_url", "slug", "adapter"],
+  "required": ["external_id", "status", "content_status", "public_url", "slug", "adapter", "version", "etag"],
   "properties": {
     "external_id": {"type": "string"},
     "status": {"type": "string", "const": "published"},
+    "content_status": {"type": "string", "const": "published"},
     "public_url": {"type": "string"},
     "slug": {"type": "string"},
-    "adapter": {"type": "string"}
+    "adapter": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "etag": {"type": "string", "minLength": 1}
   }
 }

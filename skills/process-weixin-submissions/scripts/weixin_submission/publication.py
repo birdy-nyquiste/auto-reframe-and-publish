@@ -109,9 +109,12 @@ class FakePublicationAdapter:
         response = {
             "external_id": f"post-{publication_id}",
             "status": "published",
+            "content_status": "published",
             "public_url": f"https://blog.example.test/posts/{request['slug']}",
             "slug": request["slug"],
             "adapter": self.adapter_id,
+            "version": 1,
+            "etag": '"1"',
         }
         write_json(
             self.directory / "posts" / f"{publication_id}.json",

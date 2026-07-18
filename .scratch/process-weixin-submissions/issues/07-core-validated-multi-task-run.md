@@ -6,9 +6,15 @@
 
 **Status:** ready-for-agent
 
-- [ ] 一次 run 在开始处理前登记输入窗口内所有新投稿，然后将可执行的历史任务和新任务统一按最早优先处理。
-- [ ] 单个投稿的待补充、暂时失败、重试耗尽或永久失败不会中断同一次运行中的其他投稿。
-- [ ] initialize、run、status、retry 四个 Skill 操作均可通过 canonical Skill 使用，并满足各自的只读或可变边界。
-- [ ] 正常 run 在微信侧只需要一个批次标记；任务详情和错误只出现在 Agent 结果及本地报告中。
-- [ ] 运行期间独占并在正常或中断退出时清空剪贴板，不保存此前剪贴板内容。
-- [ ] 完整验收套件在 Mac 上使用脚本化桌面 fixtures 和临时任务库通过，readiness 明确报告为 `core_validated` 而非 Windows 可用或正式可用。
+**Resolution:** completed
+
+- [x] 一次 run 在开始处理前登记输入窗口内所有新投稿，然后将可执行的历史任务和新任务统一按最早优先处理。
+- [x] 单个投稿的待补充、暂时失败、重试耗尽或永久失败不会中断同一次运行中的其他投稿。
+- [x] initialize、run、status、retry 四个 Skill 操作均可通过 canonical Skill 使用，并满足各自的只读或可变边界。
+- [x] 正常 run 在微信侧只需要一个批次标记；任务详情和错误只出现在 Agent 结果及本地报告中。
+- [x] 运行期间独占并在正常或中断退出时清空剪贴板，不保存此前剪贴板内容。
+- [x] 完整验收套件在 Mac 上使用脚本化桌面 fixtures 和临时任务库通过，readiness 明确报告为 `core_validated` 而非 Windows 可用或正式可用。
+
+## Comments
+
+- 2026-07-17：`tests.test_core_validated_workflow` 的 5 个定向测试通过，覆盖最早优先、多任务失败隔离、先登记后处理中断、剪贴板独占/清理、单写者锁和 status 只读；完整仓库验收 55 个测试全部通过。

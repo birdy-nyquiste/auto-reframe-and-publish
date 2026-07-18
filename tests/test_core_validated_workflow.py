@@ -141,6 +141,7 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
             self.clipboard_record(),
             {"schema_version": 1, "owner_id": None, "text": ""},
         )
+
         self.append_messages(
             [
                 *submission("first", "author-first"),
@@ -192,6 +193,64 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
             self.clipboard_record(),
             {"schema_version": 1, "owner_id": None, "text": ""},
         )
+
+    def test_stale_writer_lock_blocks_mutations_but_status_remains_read_only(
+        self,
+    ) -> None:
+        self.initialize()
+        lock_path = self.repository / "writer.lock"
+        lock = {
+            "schema_version": 1,
+            "owner_id": "owner-stale-fixture",
+            "pid": 999999,
+            "host": "retired-host",
+            "operation": "run",
+            "started_at": "2000-01-01T00:00:00Z",
+        }
+        lock_bytes = (json.dumps(lock, indent=2) + "\n").encode("utf-8")
+        lock_path.write_bytes(lock_bytes)
+
+        status = run_cli("status", "--repository", self.repository)
+        self.assertEqual(status.returncode, 0, status.stderr)
+        status_result = cast(dict[str, Any], json.loads(status.stdout))
+        self.assertEqual(
+            status_result["writer_lock"], {**lock, "automatic_reclaim": False}
+        )
+        self.assertEqual(lock_path.read_bytes(), lock_bytes)
+
+        mutation_commands = (
+            (
+                "initialize",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--scripted-clipboard",
+                self.clipboard,
+            ),
+            (
+                "run",
+                "--repository",
+                self.repository,
+                "--scripted-chat",
+                self.chat,
+                "--scripted-clipboard",
+                self.clipboard,
+            ),
+            (
+                "retry",
+                "--repository",
+                self.repository,
+                "--task-id",
+                "task-does-not-matter",
+            ),
+        )
+        for command in mutation_commands:
+            with self.subTest(operation=command[0]):
+                result = run_cli(*command)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("writer lock is already held", result.stderr)
+                self.assertEqual(lock_path.read_bytes(), lock_bytes)
 
     def test_historical_work_runs_first_and_one_failure_does_not_stop_new_tasks(
         self,

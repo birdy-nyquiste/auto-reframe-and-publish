@@ -84,7 +84,7 @@ Mac 自动化测试的最高 seam 是 CLI `run`：使用脚本化微信与剪贴
 - 原始文本与静态图证据、图片顺序/去重、媒体降级、不可变性、Schema、事件恢复、锁和剪贴板清理。
 - 默认/显式不发布没有任何 Blog 副作用。
 - 显式自动发布、目标映射缺失、图片阻塞、公开成功、明确拒绝、超时后查询确认和 `outcome_unknown` 禁止重发。
-- 发布状态、version/ETag 持久化、管理 GET 认证、PATCH `If-Match`、412 版本冲突、软删除、恢复与只读 revisions 的 HTTP 契约。
+- 发布状态、version/ETag 持久化、管理 GET 认证、PATCH `X-Post-Version`、428 前置条件、412 版本冲突、软删除、恢复与只读 revisions 的 HTTP 契约。
 - 多任务排序与失败隔离、中断后从最后提交里程碑恢复、状态和报告可重建。
 
 Windows Computer Use 和真实 Blog 分别需要监督式验收。Readiness 分为 `core_validated`、`windows_validated` 和 `ready`；只有所有正式依赖都验收后才能报告 `ready`。

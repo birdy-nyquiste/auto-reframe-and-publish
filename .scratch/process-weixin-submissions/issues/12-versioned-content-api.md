@@ -12,7 +12,7 @@
 - [x] 成功发布把服务端 `version` 与 HTTP `ETag` 保存到标准化发布结果。
 - [x] 发布前检查和未知结果确认改用带 Bearer 认证的 `GET /posts/:slug?manage=true`，并校验文章仍为未删除的 `published` 状态。
 - [x] 适配器提供显式的管理读取、PATCH、软删除、恢复与 revisions 方法；这些方法不进入微信字段、`run` 默认路径或自动恢复路径。
-- [x] PATCH 只接受允许字段并严格发送 `If-Match: "<version>"`；HTTP 412 分类为 `blog_version_conflict`，不自动重试。
+- [x] PATCH 只接受部署 OpenAPI 允许的字段并严格发送 `X-Post-Version: "<version>"`；HTTP 428 分类为缺少版本条件，HTTP 412 分类为 `blog_version_conflict`，不自动重试。
 - [x] 所有新增接口从配置指定的运行时环境变量读取 Bearer key，不持久化密钥。
 - [x] localhost HTTP 测试覆盖请求方法、路径、认证、状态、ETag、版本递增、412、软删除、恢复和历史读取。
 - [x] ADR、Skill 边界、外部接口参考和验收说明同步更新。
@@ -20,3 +20,4 @@
 ## Comments
 
 - 2026-07-17：根据 Blog 团队新增的版本化 Content API 说明完成适配。成功响应的完整 JSON Schema、各管理操作成功状态码和 ETag 的精确承载位置仍待对方正式 OpenAPI 确认；客户端当前同时以响应头为首选并兼容 JSON 中的 `etag`/`ETag`。
+- 2026-07-17：真实 UAT 发现同事消息中的 `If-Match` 与部署 OpenAPI v1.2.0 不一致；部署实际要求 `X-Post-Version`。适配器、fixtures 和参考文档已按部署契约修正，完整 draft 生命周期 UAT 随后通过。

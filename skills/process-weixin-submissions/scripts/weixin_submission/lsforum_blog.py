@@ -15,18 +15,33 @@ from .storage import WorkflowError, read_json
 
 
 ALLOWED_TARGET_FIELDS = {
+    "author",
+    "authorExternalId",
+    "authorSlug",
     "authorName",
     "authorTitle",
     "orgName",
+    "orgSlug",
     "postType",
     "category",
     "featured",
     "tags",
 }
 
+ALLOWED_AUTHOR_FIELDS = {"externalId", "slug", "name", "title", "orgSlug"}
+LEGACY_AUTHOR_FIELDS = (
+    "authorExternalId",
+    "authorSlug",
+    "authorName",
+    "authorTitle",
+)
+
 ALLOWED_PATCH_FIELDS = {
     "title",
     "content",
+    "author",
+    "authorExternalId",
+    "authorSlug",
     "authorName",
     "excerpt",
     "postType",
@@ -36,6 +51,7 @@ ALLOWED_PATCH_FIELDS = {
     "contentZh",
     "authorTitle",
     "orgName",
+    "orgSlug",
     "image",
     "sourceUrl",
     "readTime",
@@ -43,6 +59,21 @@ ALLOWED_PATCH_FIELDS = {
     "tags",
     "status",
 }
+
+
+def _author_object_error(author: object) -> str | None:
+    if not isinstance(author, dict):
+        return "author must be an object"
+    unknown_fields = sorted(set(author) - ALLOWED_AUTHOR_FIELDS)
+    if unknown_fields:
+        return f"author has unsupported fields: {unknown_fields}"
+    if not isinstance(author.get("name"), str) or not author["name"].strip():
+        return "author requires a non-empty name"
+    for field in ("externalId", "slug", "title", "orgSlug"):
+        value = author.get(field)
+        if value is not None and not isinstance(value, str):
+            return f"author field {field} must be a string"
+    return None
 
 
 class LsforumContentApiAdapter:
@@ -88,14 +119,46 @@ class LsforumContentApiAdapter:
                 "target_mapping_invalid",
                 f"Blog target mapping has unsupported fields: {unknown}",
             )
+        author = mapped.get("author")
+        if author is not None:
+            author_error = _author_object_error(author)
+            if author_error is not None:
+                raise PublicationError(
+                    PublicationBlockerKind.NEEDS_CONFIGURATION,
+                    "target_mapping_invalid",
+                    f"Blog target mapping {author_error}",
+                )
+            conflicting_author_fields = sorted(
+                field
+                for field in LEGACY_AUTHOR_FIELDS
+                if field in mapped
+            )
+            if conflicting_author_fields:
+                raise PublicationError(
+                    PublicationBlockerKind.NEEDS_CONFIGURATION,
+                    "target_mapping_invalid",
+                    (
+                        "Blog target mapping author cannot be combined with legacy "
+                        f"author fields: {conflicting_author_fields}"
+                    ),
+                )
         author_name = mapped.get("authorName")
-        if not isinstance(author_name, str) or not author_name.strip():
+        if author is None and (
+            not isinstance(author_name, str) or not author_name.strip()
+        ):
             raise PublicationError(
                 PublicationBlockerKind.NEEDS_CONFIGURATION,
                 "target_mapping_invalid",
-                "Blog target mapping requires a non-empty authorName",
+                "Blog target mapping requires author or a non-empty authorName",
             )
-        for field in ("authorTitle", "orgName", "category"):
+        for field in (
+            "authorExternalId",
+            "authorSlug",
+            "authorTitle",
+            "orgSlug",
+            "orgName",
+            "category",
+        ):
             value = mapped.get(field)
             if value is not None and not isinstance(value, str):
                 raise PublicationError(
@@ -254,16 +317,28 @@ class LsforumContentApiAdapter:
                 f"Blog patch has unsupported fields: {unknown}"
             )
         status = changes.get("status")
-        if status is not None and status not in ("draft", "published"):
+        if status is not None and status not in ("draft", "published", "archived"):
             raise _invalid_management_request(
-                "Blog patch status must be draft or published"
+                "Blog patch status must be draft, published, or archived"
             )
+        if "author" in changes:
+            author_error = _author_object_error(changes["author"])
+            if author_error is not None:
+                raise _invalid_management_request(f"Blog patch {author_error}")
+            conflicting_author_fields = sorted(
+                field for field in LEGACY_AUTHOR_FIELDS if field in changes
+            )
+            if conflicting_author_fields:
+                raise _invalid_management_request(
+                    "Blog patch author cannot be combined with legacy author fields: "
+                    f"{conflicting_author_fields}"
+                )
         version_text = _version_text(version)
         response = self._content_api_request(
             "PATCH",
             f"/posts/{_encoded_slug(slug)}",
             payload=changes,
-            extra_headers={"If-Match": f'"{version_text}"'},
+            extra_headers={"X-Post-Version": f'"{version_text}"'},
             side_effect=True,
         )
         if response is None:
@@ -399,6 +474,13 @@ class LsforumContentApiAdapter:
                     _error_message(body) or "Blog version is stale",
                     _raw_http_error(error.code, body),
                 ) from error
+            if error.code == 428:
+                raise PublicationError(
+                    PublicationBlockerKind.PERMANENT_FAILURE,
+                    "blog_version_required",
+                    _error_message(body) or "Blog version header is required",
+                    _raw_http_error(error.code, body),
+                ) from error
             raise PublicationError(
                 (
                     PublicationBlockerKind.OUTCOME_UNKNOWN
@@ -499,6 +581,12 @@ class LsforumContentApiAdapter:
         expected_author = (
             mapped_fields.get("authorName") if isinstance(mapped_fields, dict) else None
         )
+        if (
+            expected_author is None
+            and isinstance(mapped_fields, dict)
+            and isinstance(mapped_fields.get("author"), dict)
+        ):
+            expected_author = mapped_fields["author"].get("name")
         observed_author = existing_body.get("authorName")
         if observed_author is None and isinstance(existing_body.get("author"), dict):
             observed_author = existing_body["author"].get("name")
@@ -641,6 +729,8 @@ def _error_message(body: bytes) -> str | None:
     if not isinstance(value, dict):
         return None
     message = value.get("message")
+    if not isinstance(message, str) and isinstance(value.get("error"), dict):
+        message = value["error"].get("message")
     return message if isinstance(message, str) else None
 
 

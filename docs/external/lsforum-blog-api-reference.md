@@ -1,6 +1,6 @@
 # LSForum Blog 外部接口参考
 
-> 状态：外部接口参考，不是正式契约。本文于 2026-07-17 根据 Blog 团队提供的 `api.md`、`ingestion.md` 及后续 Content API 更新说明整理。实现前仍应以对方确认的 OpenAPI、环境配置和变更通知为准。
+> 状态：外部接口参考，不是本项目拥有的契约。本文于 2026-07-17 根据 Blog 团队材料整理，并由部署中的 OpenAPI v1.2.0 与真实 draft 生命周期 UAT 校正。实现仍应以部署 OpenAPI、环境配置和变更通知为准。
 
 ## 用途
 
@@ -13,6 +13,7 @@
 | 项目 | 当前信息 |
 | --- | --- |
 | Base URL | `https://blog-lsforum.vercel.app/api/v1` |
+| 部署 OpenAPI | `1.2.0`（2026-07-17 实际读取） |
 | 正式/测试环境 | 只提供了一个当前地址，未确认独立测试环境 |
 | 内容类型 | file-based post、import、API-ingested external post |
 | 写入存储 | Postgres `ingested_posts` |
@@ -41,7 +42,7 @@ Authorization: Bearer <INGEST_API_KEY>
 | `GET` | `/posts/:slug?format=markdown` | 无 | 读取英文 Markdown 正文 |
 | `POST` | `/posts` | Bearer | 创建 `draft` 或 `published` external post；默认 published |
 | `GET` | `/posts/:slug?manage=true` | Bearer | 读取草稿、软删除状态及当前 version |
-| `PATCH` | `/posts/:slug` | Bearer + `If-Match` | 按当前 version 局部修改；成功后 version 增加 |
+| `PATCH` | `/posts/:slug` | Bearer + `X-Post-Version` | 按当前 version 局部修改；成功后 version 增加 |
 | `DELETE` | `/posts/:slug` | Bearer | 软删除文章，使其不再公开显示 |
 | `POST` | `/posts/:slug/restore` | Bearer | 恢复软删除文章 |
 | `GET` | `/posts/:slug/revisions` | Bearer | 读取只读操作历史和版本快照 |
@@ -52,7 +53,7 @@ Authorization: Bearer <INGEST_API_KEY>
 
 本项目正常 `run` 只允许使用显式 published `POST` 和用于确认结果的管理 `GET`。适配器具有窄的管理方法以匹配接口，但它们不是微信输入、CLI operation、正常运行步骤或自动恢复动作；彻底删除与历史修改不实现。
 
-## 创建并公开文章
+## 创建文章
 
 ```http
 POST /api/v1/posts
@@ -66,7 +67,10 @@ Authorization: Bearer <INGEST_API_KEY>
 | --- | --- | --- | --- |
 | `title` | string | 是 | 最多 200 字符 |
 | `content` | string | 是 | Markdown；raw HTML 不渲染 |
-| `authorName` | string | 是 | 自由文本；也接受别名 `author` |
+| `author` | object | 否 | 首选作者身份；name 必填，可含 externalId、slug、title、orgSlug |
+| `authorName` | string | 否 | 旧版自由文本作者名 |
+| `authorExternalId` | string | 否 | 调用方稳定作者 ID |
+| `authorSlug` | string | 否 | 公开作者 slug |
 | `excerpt` | string | 否 | 最多 500 字符；省略时从正文生成 |
 | `slug` | string | 否 | 省略时从标题生成；冲突时自动去重 |
 | `postType` | `article` 或 `opinion` | 否 | 默认 `article` |
@@ -76,6 +80,7 @@ Authorization: Bearer <INGEST_API_KEY>
 | `contentZh` | string | 否 | 中文 Markdown 正文 |
 | `authorTitle` | string | 否 | 作者头衔自由文本 |
 | `orgName` | string | 否 | 组织或来源自由文本标签 |
+| `orgSlug` | string | 否 | 已存在组织的 slug |
 | `image` | http(s) URL | 否 | 卡片和 hero 封面图 |
 | `sourceUrl` | http(s) URL | 否 | 原始来源地址 |
 | `readTime` | string | 否 | 省略时自动估算 |
@@ -96,7 +101,7 @@ Authorization: Bearer <INGEST_API_KEY>
 
 ### Success
 
-HTTP `201`。更新说明确认响应新增当前 `version` 和 `ETag`；其中 ETag 是 HTTP 响应头还是 JSON 字段，补充材料没有给出完整报文。客户端以标准 HTTP `ETag` 响应头为首选，并兼容 JSON 中的 `etag` 或 `ETag`：
+HTTP `201`。真实 UAT 确认 JSON 返回正整数 `version`，HTTP 响应头返回带双引号的 ETag；客户端以响应头为首选，并兼容 JSON 中的 `etag` 或 `ETag`：
 
 ```http
 ETag: "1"
@@ -115,7 +120,7 @@ ETag: "1"
 }
 ```
 
-`slug` 与 `url` 指向已经公开的文章，不是草稿 ID或后台预览地址。
+`published` 时 `slug` 与 `url` 指向公开文章；`draft` 响应也返回相同 URL，但公共 GET 为 `404`，不能把该 URL 当作公开成功证据。
 
 ### 已知错误
 
@@ -124,10 +129,11 @@ ETag: "1"
 | `400` | 请求字段缺失或无效；message 应指出问题 |
 | `401` | Bearer key 错误 |
 | `404` | 读取未知 slug、keyword、org，或访问未公开内容 |
-| `412` | PATCH 的 `If-Match` version 已过期 |
+| `412` | PATCH 的 `X-Post-Version` 已过期；响应提供当前 version |
+| `428` | PATCH 缺少或提供了非法的 `X-Post-Version` |
 | `503` | 服务端未配置 key 或数据库 |
 
-当前材料没有完整定义 `403`、`409`、`413`、`415`、`422`、`429`、5xx、字段级错误结构、追踪 ID及 `Retry-After`。
+当前材料没有完整定义 `403`、`409`、`413`、`415`、`422`、`429`、5xx、字段级校验 details、追踪 ID 及 `Retry-After`。
 
 ## 读取和归属语义
 
@@ -141,14 +147,15 @@ ETag: "1"
 
 ## 版本化编辑、软删除和历史
 
-- `PATCH /posts/:slug` 支持局部修改，必须发送 `If-Match: "<当前version>"`。
+- `PATCH /posts/:slug` 支持局部修改，必须发送 `X-Post-Version: "<当前version>"`。同事消息曾写成 `If-Match`，但部署 OpenAPI 与真实 UAT 均确认实际头名为 `X-Post-Version`。
 - 成功修改后 version 自动增加；版本过期返回 `412`。调用方必须重新读取并由操作人决定如何处理冲突，不能静默覆盖或自动重试。
 - `DELETE /posts/:slug` 是软删除：文章不再公开显示，但记录仍存在并可恢复。
 - `POST /posts/:slug/restore` 恢复软删除文章。
-- `GET /posts/:slug/revisions` 返回操作历史和版本快照。响应可以由适配器保留为 JSON 对象或数组；正式形态仍待 OpenAPI 确认。历史只能读取，不能通过 API 修改或彻底删除。
+- `GET /posts/:slug/revisions` 返回 `{slug, items}`，items 按最新版本优先，action 为 `create | update | delete | restore` 并包含只读 snapshot。历史不能通过 API 修改或彻底删除。
 - 彻底删除只能由网站管理员在数据库后台处理，本项目不提供该能力。
-- 补充材料没有定义 PATCH 允许字段的完整子集；适配器当前只允许创建文章字段中适合局部修改的已知字段，并禁止修改 slug。
-- 补充材料没有给出软删除状态字段名。发布恢复只接受明确的 `deleted: false`、`isDeleted: false` 或 `deletedAt: null`；字段完全缺失时保守地视为结果未知，待正式 Schema 到位后再收敛。
+- OpenAPI 的 PATCH 字段白名单不包含 slug，允许内容、作者身份、组织、展示字段和 `draft | published | archived` 生命周期状态；适配器使用同一白名单。
+- 管理读取使用 `deletedAt` 表示软删除状态：活动记录为 `null`，软删除记录为时间戳。适配器仍兼容 `deleted` / `isDeleted` 布尔表示，但字段完全缺失时保守地视为结果未知。
+- 管理错误采用 `{error: {code, message, ...}}`；适配器同时兼容早期顶层 `message`。
 
 ## UAT 限制
 
@@ -198,6 +205,8 @@ ETag: "1"
 
 2026-07-17 已完成一次经操作人明确授权的纯文本 UAT 公开发布与独立 GET 回读，证据见 [LSForum 真实接口验收](../validation/2026-07-17-lsforum-live-acceptance.md)。该验收不覆盖图片、正式改写或 Windows 微信采集。
 
+同日还完成版本化 Content API 的真实 draft 生命周期验收，覆盖创建、管理读取、成功 PATCH、过期版本 412、软删除、恢复、revisions、公共隐藏和最终软删除，证据见 [版本化 Content API 真实验收](../validation/2026-07-17-versioned-content-api-live-acceptance.md)。
+
 ## 尚未确认
 
 - 当前 Base URL 是否为长期生产地址；是否有独立 staging/UAT 环境。
@@ -210,16 +219,16 @@ ETag: "1"
 - 成功写入与公共读取之间是否存在延迟。
 - 远程 image URL 是否由 Blog 下载、代理或永久外链。
 - key 的轮换、撤销、scope 和目标隔离能力。
-- POST、PATCH、DELETE、restore 和 revisions 的完整成功/失败 JSON Schema及精确成功状态码。
-- ETag 是否只位于 HTTP 响应头、是否也在 JSON 中返回，以及 GET/PATCH/DELETE/restore 是否都返回新 ETag。恢复时若 GET 只返回 version，客户端按明确的 `If-Match: "<version>"` 规则保存该并发令牌。
-- version 的 JSON 类型、起始值、删除与恢复是否增加 version，以及 `If-Match` 是否接受 ETag 本身或只接受数字 version。
-- `manage=true` 与 `format=markdown` 是否可组合，以及软删除、恢复和 revisions 的分页/保留策略。
-- PATCH 可修改字段、`null` 清空语义、未知字段行为，以及 status 在 draft/published 间转换的约束。
+- ETag 是否也可能在 JSON 中返回，以及 revisions 是否会增加分页或保留期限。
+- 版本 header 为何偏离同事消息中的 `If-Match`，以及未来是否会再次迁移到标准条件请求头。
+- PATCH 各 nullable 字段的清空细节，以及 draft/published/archived 之间的业务约束。
 
 ## 来源记录
 
 - Blog 团队 `api.md`：总体读取和写入接口、公共内容结构、组织及字段字典。
 - Blog 团队 `ingestion.md`：部署地址、认证、即时发布流程、UAT、早期编辑限制及无幂等警告。
 - Blog 团队 2026-07-17 Content API 更新说明：status、manage 读取、条件 PATCH、软删除、恢复、revisions 与统一认证。
+- 部署中的 `/api/v1/openapi.json` v1.2.0：当前路径、header、字段、成功/错误 Schema。
+- 2026-07-17 真实 draft 生命周期 UAT：确认部署行为及版本递增、ETag、公共隐藏和 revisions 快照。
 
 两份原始文件位于项目仓库之外，没有作为正式 vendor snapshot 提交。若对方文档更新，应重新核对本参考，而不是假设其自动同步。

@@ -55,7 +55,26 @@ class LocalBlog:
                     }
                 )
                 if parts[-1] == "revisions":
-                    self._json(200, owner.revisions.get(slug, []))
+                    revisions = owner.revisions.get(slug, [])
+                    self._json(
+                        200,
+                        {
+                            "slug": slug,
+                            "items": [
+                                {
+                                    "id": f"revision-{revision['version']}",
+                                    "slug": slug,
+                                    "version": revision["version"],
+                                    "action": revision["operation"],
+                                    "actor": "fixture",
+                                    "requestId": None,
+                                    "createdAt": "2026-07-17T00:00:00Z",
+                                    "snapshot": dict(owner.posts.get(slug, {})),
+                                }
+                                for revision in reversed(revisions)
+                            ],
+                        },
+                    )
                     return
                 post = owner.posts.get(slug)
                 if post is None:
@@ -148,6 +167,7 @@ class LocalBlog:
                         "path": self.path,
                         "authorization": self.headers.get("Authorization"),
                         "if_match": self.headers.get("If-Match"),
+                        "post_version": self.headers.get("X-Post-Version"),
                         "payload": payload,
                     }
                 )
@@ -155,8 +175,38 @@ class LocalBlog:
                 if post is None:
                     self._json(404, {"message": "Post not found"})
                     return
-                if self.headers.get("If-Match") != f'"{post["version"]}"':
-                    self._json(412, {"message": "Version is stale"})
+                if owner.mode == "patch_precondition_required":
+                    self._json(
+                        428,
+                        {
+                            "error": {
+                                "code": "PRECONDITION_REQUIRED",
+                                "message": "Version header is required",
+                            }
+                        },
+                    )
+                    return
+                if self.headers.get("X-Post-Version") is None:
+                    self._json(
+                        428,
+                        {
+                            "error": {
+                                "code": "PRECONDITION_REQUIRED",
+                                "message": "Version header is required",
+                            }
+                        },
+                    )
+                    return
+                if self.headers.get("X-Post-Version") != f'"{post["version"]}"':
+                    self._json(
+                        412,
+                        {
+                            "error": {
+                                "code": "VERSION_CONFLICT",
+                                "message": "Version is stale",
+                            }
+                        },
+                    )
                     return
                 post.update(payload)
                 post["version"] += 1
@@ -212,7 +262,8 @@ class LocalBlog:
 
     @property
     def base_url(self) -> str:
-        host, port = self.server.server_address
+        host = self.server.server_address[0]
+        port = self.server.server_address[1]
         return f"http://{str(host)}:{port}/api/v1"
 
     def public_url(self, slug: str) -> str:
@@ -346,7 +397,77 @@ class LsforumPublicationTest(unittest.TestCase):
             if path.is_file():
                 self.assertNotIn(b"super-secret-test-key", path.read_bytes())
 
-    def test_versioned_management_requests_use_auth_and_if_match(self) -> None:
+    def test_target_mapping_accepts_deployed_stable_author_identity(self) -> None:
+        with LocalBlog() as blog:
+            self.config.write_text(
+                json.dumps(
+                    {
+                        "config_version": 1,
+                        "adapter": "lsforum",
+                        "base_url": blog.base_url,
+                        "api_key_env": "LSFORUM_TEST_KEY",
+                        "targets": {
+                            "writer-one": {
+                                "author": {
+                                    "externalId": "writer-1",
+                                    "slug": "writer-one",
+                                    "name": "Writer One",
+                                    "title": "Editor",
+                                    "orgSlug": "community",
+                                },
+                                "orgSlug": "community",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.append_submission()
+            result = self.run_auto()
+            publication_id = result["publication_results"][0]["publication_id"]
+            request = json.loads(
+                (
+                    self.repository
+                    / "publications"
+                    / publication_id
+                    / "request.json"
+                ).read_text("utf-8")
+            )
+            recovered = LsforumPublicationAdapter(self.config).confirm(request)
+
+        post = next(item for item in blog.requests if item["method"] == "POST")
+        self.assertEqual(post["payload"]["author"]["externalId"], "writer-1")
+        self.assertEqual(post["payload"]["author"]["name"], "Writer One")
+        self.assertNotIn("authorName", post["payload"])
+        self.assertEqual(post["payload"]["orgSlug"], "community")
+        self.assertIsNotNone(recovered)
+
+    def test_target_mapping_rejects_mixed_author_representations(self) -> None:
+        self.config.write_text(
+            json.dumps(
+                {
+                    "config_version": 1,
+                    "adapter": "lsforum",
+                    "base_url": "https://example.test/api/v1",
+                    "api_key_env": "LSFORUM_TEST_KEY",
+                    "targets": {
+                        "writer-one": {
+                            "author": {"name": "Writer One"},
+                            "authorName": "Different Writer",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        adapter = LsforumPublicationAdapter(self.config)
+
+        with self.assertRaises(PublicationError) as raised:
+            adapter.map_target("writer-one")
+
+        self.assertEqual(raised.exception.code, "target_mapping_invalid")
+
+    def test_versioned_management_requests_use_auth_and_version_header(self) -> None:
         with LocalBlog() as blog:
             self.write_config(blog)
             adapter = LsforumPublicationAdapter(self.config)
@@ -377,16 +498,27 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertEqual(managed["body"]["version"], 3)
         self.assertEqual(updated["headers"]["etag"], '"4"')
         self.assertEqual(stale.exception.code, "blog_version_conflict")
+        self.assertEqual(str(stale.exception), "Version is stale")
         self.assertTrue(deleted["body"]["deleted"])
         self.assertFalse(restored["body"]["deleted"])
-        self.assertEqual(len(revisions["body"]), 4)
+        self.assertEqual(revisions["body"]["slug"], "managed-post")
+        self.assertEqual(
+            [item["action"] for item in revisions["body"]["items"]],
+            ["restore", "delete", "update", "create"],
+        )
+        self.assertTrue(
+            all("snapshot" in item for item in revisions["body"]["items"])
+        )
 
         for request in blog.requests:
             self.assertEqual(
                 request["authorization"], "Bearer super-secret-test-key"
             )
         patches = [request for request in blog.requests if request["method"] == "PATCH"]
-        self.assertEqual([request["if_match"] for request in patches], ['"3"', '"3"'])
+        self.assertEqual(
+            [request["post_version"] for request in patches], ['"3"', '"3"']
+        )
+        self.assertEqual([request["if_match"] for request in patches], [None, None])
         self.assertTrue(blog.requests[0]["path"].endswith("?manage=true"))
         self.assertTrue(blog.requests[-1]["path"].endswith("/revisions"))
 
@@ -402,6 +534,129 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertEqual(unsupported.exception.code, "publication_request_invalid")
         self.assertEqual(invalid_version.exception.code, "publication_request_invalid")
         self.assertEqual(blog.requests, [])
+
+    def test_patch_accepts_all_deployed_identity_and_lifecycle_fields(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            blog.posts["managed-post"] = {
+                "slug": "managed-post",
+                "title": "Original",
+                "content": "Body",
+                "authorName": "Writer One",
+                "status": "draft",
+                "version": 3,
+                "deleted": False,
+            }
+            nested_updated = adapter.patch_post(
+                "managed-post",
+                {
+                    "author": {
+                        "externalId": "writer-1",
+                        "slug": "writer-one",
+                        "name": "Writer One",
+                        "title": "Editor",
+                        "orgSlug": "community",
+                    },
+                    "orgSlug": "community",
+                    "status": "archived",
+                },
+                version=3,
+            )
+            flat_updated = adapter.patch_post(
+                "managed-post",
+                {
+                    "authorExternalId": "writer-1",
+                    "authorSlug": "writer-one",
+                    "authorName": "Writer One",
+                    "authorTitle": "Editor",
+                },
+                version=4,
+            )
+
+        self.assertEqual(nested_updated["body"]["version"], 4)
+        self.assertEqual(flat_updated["body"]["version"], 5)
+        patches = [item for item in blog.requests if item["method"] == "PATCH"]
+        self.assertEqual(
+            patches[0]["payload"],
+            {
+                "author": {
+                    "externalId": "writer-1",
+                    "slug": "writer-one",
+                    "name": "Writer One",
+                    "title": "Editor",
+                    "orgSlug": "community",
+                },
+                "orgSlug": "community",
+                "status": "archived",
+            },
+        )
+        self.assertEqual(
+            patches[1]["payload"],
+            {
+                "authorExternalId": "writer-1",
+                "authorSlug": "writer-one",
+                "authorName": "Writer One",
+                "authorTitle": "Editor",
+            },
+        )
+
+    def test_patch_rejects_invalid_nested_author_before_request(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+
+            with self.assertRaises(PublicationError) as raised:
+                adapter.patch_post(
+                    "managed-post",
+                    {"author": {"slug": "missing-name"}},
+                    version=3,
+                )
+
+        self.assertEqual(raised.exception.code, "publication_request_invalid")
+        self.assertEqual(blog.requests, [])
+
+    def test_patch_rejects_mixed_author_representations_before_request(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+
+            with self.assertRaises(PublicationError) as raised:
+                adapter.patch_post(
+                    "managed-post",
+                    {
+                        "author": {"name": "Writer One"},
+                        "authorName": "Different Writer",
+                    },
+                    version=3,
+                )
+
+        self.assertEqual(raised.exception.code, "publication_request_invalid")
+        self.assertEqual(blog.requests, [])
+
+    def test_patch_classifies_precondition_required(self) -> None:
+        with LocalBlog(mode="patch_precondition_required") as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            blog.posts["managed-post"] = {
+                "slug": "managed-post",
+                "title": "Original",
+                "content": "Body",
+                "authorName": "Writer One",
+                "status": "draft",
+                "version": 3,
+                "deleted": False,
+            }
+
+            with self.assertRaises(PublicationError) as raised:
+                adapter.patch_post(
+                    "managed-post",
+                    {"title": "Updated"},
+                    version=3,
+                )
+
+        self.assertEqual(raised.exception.code, "blog_version_required")
+        self.assertEqual(str(raised.exception), "Version header is required")
 
     def test_confirmation_without_required_key_remains_configuration_blocked(
         self,

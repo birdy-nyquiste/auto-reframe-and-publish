@@ -9,7 +9,7 @@
     "owner_id": {"type": "string"},
     "pid": {"type": "integer", "minimum": 1},
     "host": {"type": "string"},
-    "operation": {"type": "string", "enum": ["initialize", "run", "retry"]},
+    "operation": {"type": "string", "enum": ["initialize", "run", "retry", "publish"]},
     "started_at": {"type": "string"}
   }
 }

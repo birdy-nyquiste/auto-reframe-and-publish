@@ -29,6 +29,25 @@
     "target_id": {"type": "string"},
     "slug": {"type": "string"},
     "adapter": {"type": "string"},
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_policy",
+        "omitted_markdown_image_count",
+        "source_body_sha256",
+        "published_body_sha256"
+      ],
+      "properties": {
+        "image_policy": {
+          "type": "string",
+          "enum": ["preserve", "omit"]
+        },
+        "omitted_markdown_image_count": {"type": "integer", "minimum": 0},
+        "source_body_sha256": {"type": "string"},
+        "published_body_sha256": {"type": "string"}
+      }
+    },
     "milestone": {
       "type": "string",
       "enum": ["publication_created", "request_ready", "publication_confirmed"]

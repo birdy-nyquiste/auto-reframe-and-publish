@@ -11,7 +11,7 @@ CLI = ROOT / "skills/process-weixin-submissions/scripts/process_weixin_submissio
 
 
 class ScriptedSubmissionTest(unittest.TestCase):
-    def test_skill_cli_exposes_the_four_planned_operations(self) -> None:
+    def test_skill_cli_exposes_the_planned_operations(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(CLI), "--help"],
             cwd=ROOT,
@@ -21,7 +21,7 @@ class ScriptedSubmissionTest(unittest.TestCase):
         )
 
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        for operation in ("initialize", "run", "status", "retry"):
+        for operation in ("initialize", "run", "status", "retry", "publish"):
             self.assertIn(operation, completed.stdout)
 
 

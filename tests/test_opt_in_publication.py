@@ -12,6 +12,10 @@ from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "skills/process-weixin-submissions/scripts/process_weixin_submissions.py"
+sys.path.insert(0, str(CLI.parent))
+
+from weixin_submission.publication import _publication_body  # noqa: E402
+from weixin_submission.rewrite import RewriteArtifact  # noqa: E402
 
 
 def run_cli(*arguments: object) -> subprocess.CompletedProcess[str]:
@@ -276,6 +280,108 @@ class OptInPublicationTest(unittest.TestCase):
         )
         self.assertFalse((publication_directory / "request.json").exists())
         self.assertFalse((fake_blog / "posts").exists())
+
+    def test_explicit_publish_can_create_audited_text_only_version(self) -> None:
+        self.append_submission("text-only")
+        chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
+        article = chat["messages"][-1]
+        article.pop("body")
+        article.pop("source_url")
+        article.pop("images")
+        article["scripted_capture"] = {
+            "clipboard_text": "Body with one captured image.",
+            "source_url": "https://example.com/text-only",
+            "article_end_observed": True,
+            "all_static_images_captured": True,
+            "media": [
+                {
+                    "kind": "image",
+                    "mime_type": "image/png",
+                    "capture_method": "original_bytes",
+                    "bytes_base64": base64.b64encode(b"image-bytes").decode("ascii"),
+                }
+            ],
+        }
+        self.chat.write_text(json.dumps(chat), encoding="utf-8")
+        content_result = self.run_without_publication()
+        task_id = content_result["task_ids"][0]
+        task_directory = self.repository / "tasks" / task_id
+        rewrite_commit_before = (task_directory / "rewrite" / "commit.json").read_bytes()
+        fake_blog = self.root / "fake-public-blog"
+
+        preserved = run_cli(
+            "publish",
+            "--repository",
+            self.repository,
+            "--task-id",
+            task_id,
+            "--fake-blog-directory",
+            fake_blog,
+        )
+        self.assertEqual(preserved.returncode, 0, preserved.stderr)
+        preserved_result = cast(dict[str, Any], json.loads(preserved.stdout))
+        self.assertEqual(
+            preserved_result["publication_result"]["blocker_reason"],
+            "public_image_urls_missing",
+        )
+
+        published = run_cli(
+            "publish",
+            "--repository",
+            self.repository,
+            "--task-id",
+            task_id,
+            "--image-policy",
+            "omit",
+            "--fake-blog-directory",
+            fake_blog,
+        )
+        self.assertEqual(published.returncode, 0, published.stderr)
+        result = cast(dict[str, Any], json.loads(published.stdout))
+        publication_result = result["publication_result"]
+        self.assertEqual(publication_result["status"], "publication_confirmed")
+        publication_directory = (
+            self.repository
+            / "publications"
+            / publication_result["publication_id"]
+        )
+        publication = cast(
+            dict[str, Any],
+            json.loads((publication_directory / "publication.json").read_text("utf-8")),
+        )
+        request = cast(
+            dict[str, Any],
+            json.loads((publication_directory / "request.json").read_text("utf-8")),
+        )
+        self.assertEqual(publication["presentation"]["image_policy"], "omit")
+        self.assertEqual(request["images"], [])
+        self.assertTrue(Path(result["report_path"]).exists())
+        self.assertEqual(
+            (task_directory / "rewrite" / "commit.json").read_bytes(),
+            rewrite_commit_before,
+        )
+        self.assertEqual(len(list((fake_blog / "posts").glob("*.json"))), 1)
+
+    def test_text_only_body_removes_markdown_images_deterministically(self) -> None:
+        artifact = RewriteArtifact(
+            title="Title",
+            content=(
+                "# Title\n\nBefore.\n\n"
+                "![First](source-image-001.jpg)\n\n"
+                "Between ![Second](source-image-002.jpg) text.\n"
+            ),
+            target_id="author",
+            images=("one", "two"),
+        )
+
+        body, presentation = _publication_body(artifact, "omit")
+
+        self.assertEqual(body, "# Title\n\nBefore.\n\nBetween  text.\n")
+        self.assertEqual(presentation["omitted_markdown_image_count"], 2)
+        self.assertNotEqual(
+            presentation["source_body_sha256"],
+            presentation["published_body_sha256"],
+        )
 
     def test_missing_target_mapping_blocks_before_http(self) -> None:
         self.append_submission("unmapped")

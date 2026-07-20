@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from enum import Enum
 from pathlib import Path
@@ -172,6 +173,7 @@ def publish_rewrite(
     before_send: Callable[[], None] | None = None,
     after_send_started: Callable[[], None] | None = None,
     after_response_received: Callable[[], None] | None = None,
+    image_policy: str = "preserve",
 ) -> tuple[str, dict[str, Any]]:
     task_directory = repository / "tasks" / task_id
     task = load_record("task", task_directory / "task.json")
@@ -181,6 +183,7 @@ def publish_rewrite(
     if not isinstance(target_id, str):
         raise WorkflowError(f"Task {task_id} has no target ID")
     artifact = load_rewrite_artifact(task_directory, target_id, task["requirements"])
+    publication_body, presentation = _publication_body(artifact, image_policy)
     commit_bytes = (task_directory / "rewrite" / "commit.json").read_bytes()
     publication_id = new_id("publication")
     publication_directory = repository / "publications" / publication_id
@@ -196,6 +199,7 @@ def publish_rewrite(
         "target_id": target_id,
         "slug": _slug(publication_id),
         "adapter": adapter.adapter_id,
+        "presentation": presentation,
         "milestone": "publication_created",
         "blocker": None,
         "external_result": None,
@@ -204,7 +208,7 @@ def publish_rewrite(
         publication_directory, publication, run_id, "milestone_committed"
     )
 
-    if artifact.images:
+    if artifact.images and image_policy == "preserve":
         publication["blocker"] = {
             "kind": "needs_configuration",
             "error_code": "public_image_urls_missing",
@@ -215,7 +219,7 @@ def publish_rewrite(
         return publication_id, _result(publication)
 
     try:
-        request = _request(publication, artifact, adapter)
+        request = _request(publication, artifact, publication_body, adapter)
     except PublicationError as error:
         _block(publication_directory, publication, run_id, error)
         return publication_id, _result(publication)
@@ -427,7 +431,10 @@ def _complete_publication_attempt(
 
 
 def _request(
-    publication: dict[str, Any], artifact: RewriteArtifact, adapter: PublicationAdapter
+    publication: dict[str, Any],
+    artifact: RewriteArtifact,
+    publication_body: str,
+    adapter: PublicationAdapter,
 ) -> dict[str, Any]:
     request = {
         "schema_version": SCHEMA_VERSION,
@@ -440,13 +447,41 @@ def _request(
             "mapped_fields": adapter.map_target(artifact.target_id),
         },
         "title": artifact.title,
-        "body_markdown": artifact.content,
+        "body_markdown": publication_body,
         "images": [],
         "adapter": adapter.adapter_id,
         "destination": adapter.destination_id,
     }
     validate_record("publication-request", request)
     return request
+
+
+_MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]\n]*\]\([^\)\n]+\)")
+
+
+def _publication_body(
+    artifact: RewriteArtifact, image_policy: str
+) -> tuple[str, dict[str, Any]]:
+    if image_policy not in ("preserve", "omit"):
+        raise WorkflowError(f"Unsupported publication image policy: {image_policy}")
+    source_body = artifact.content
+    if image_policy == "omit":
+        published_body, omitted_count = _MARKDOWN_IMAGE_PATTERN.subn("", source_body)
+        published_body = re.sub(r"\n{3,}", "\n\n", published_body).strip() + "\n"
+    else:
+        published_body = source_body
+        omitted_count = 0
+    if not published_body.strip():
+        raise WorkflowError("Publication body is empty after applying image policy")
+    presentation = {
+        "image_policy": image_policy,
+        "omitted_markdown_image_count": omitted_count,
+        "source_body_sha256": hashlib.sha256(source_body.encode("utf-8")).hexdigest(),
+        "published_body_sha256": hashlib.sha256(
+            published_body.encode("utf-8")
+        ).hexdigest(),
+    }
+    return published_body, presentation
 
 
 def _commit_publication(
@@ -473,6 +508,8 @@ def _commit_publication(
         changed = [
             field for field in immutable_fields if previous[field] != publication[field]
         ]
+        if previous.get("presentation") != publication.get("presentation"):
+            changed.append("presentation")
         if changed:
             raise WorkflowError(f"Publication changed immutable fields: {changed}")
         previous_milestone = str(previous["milestone"])
@@ -533,6 +570,8 @@ def validate_publication_history(directory: Path) -> dict[str, Any]:
             changed = [
                 field for field in immutable_fields if latest[field] != state[field]
             ]
+            if latest.get("presentation") != state.get("presentation"):
+                changed.append("presentation")
             if changed:
                 raise WorkflowError(
                     f"Publication event changed immutable fields: {changed}"
@@ -642,12 +681,25 @@ def _validate_request_identity(
     artifact = load_rewrite_artifact(
         task_directory, str(publication["target_id"]), task["requirements"]
     )
+    presentation = publication.get("presentation")
+    if presentation is None:
+        expected_body = artifact.content
+    else:
+        if not isinstance(presentation, dict):
+            raise WorkflowError("Publication presentation is invalid")
+        expected_body, expected_presentation = _publication_body(
+            artifact, str(presentation.get("image_policy"))
+        )
+        if presentation != expected_presentation:
+            raise WorkflowError(
+                "Publication presentation no longer matches its rewrite artifact"
+            )
     target = request.get("target")
     source_id = target.get("source_id") if isinstance(target, dict) else None
     if (
         source_id != artifact.target_id
         or request.get("title") != artifact.title
-        or request.get("body_markdown") != artifact.content
+        or request.get("body_markdown") != expected_body
         or request.get("images") != []
     ):
         raise WorkflowError("Publication request no longer matches its rewrite artifact")

@@ -11,6 +11,8 @@ Content-task milestones are:
 
 Publication is not a fifth content milestone. A publication has its own `publication_created`, `request_ready`, and `publication_confirmed` milestones plus an independent blocker. A content task remains complete even when publication is blocked or fails.
 
+`publish` creates its own run and a new publication aggregate for one existing `rewrite_artifact_ready` task. This keeps later operator-authorized presentation choices, such as an audited text-only version, separate from the immutable content task and from earlier blocked publication attempts.
+
 Active work is represented by append-only attempt events, not a persisted running task milestone. State-changing content events carry `state_after`; `task.json` is the rebuildable projection. Blockers are independent from progress.
 
 ## Recovery

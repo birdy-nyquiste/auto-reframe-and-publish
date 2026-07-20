@@ -957,6 +957,98 @@ def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
     }
 
 
+def publish_existing_task(
+    repository: Path,
+    task_id: str,
+    *,
+    image_policy: str,
+    fake_blog_directory: Path | None = None,
+    blog_config: Path | None = None,
+) -> dict[str, object]:
+    metadata = load_record("repository", repository / "repository.json")
+    if metadata["pending_window"] is not None:
+        raise WorkflowError(
+            "Complete the pending input window before publishing an existing task"
+        )
+    if (fake_blog_directory is None) == (blog_config is None):
+        raise WorkflowError("Publish requires exactly one Blog adapter")
+    task_directory = repository / "tasks" / task_id
+    task_record = load_record("task", task_directory / "task.json")
+    if (
+        task_record["milestone"] != "rewrite_artifact_ready"
+        or task_record["blocker"] is not None
+    ):
+        raise WorkflowError(f"Task {task_id} has no publishable rewrite artifact")
+
+    started_at = utc_now()
+    run_id = new_id("run")
+    run_directory = repository / "runs" / run_id
+    run_record: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "run_id": run_id,
+        "operation": "publish",
+        "started_at": started_at,
+        "completed_at": None,
+        "status": "processing",
+        "input_window": {"task_id": task_id, "image_policy": image_policy},
+        "created_task_ids": [],
+        "attempted_task_ids": [],
+        "publication_selection": "auto",
+        "created_publication_ids": [],
+        "attempted_publication_ids": [],
+        "recovered_by_run": None,
+    }
+    save_record("run", run_directory / "run.json", run_record)
+    reconcile_task_projections(repository)
+    _recover_processing_runs(repository, run_id)
+
+    adapter: PublicationAdapter
+    if fake_blog_directory is not None:
+        adapter = FakePublicationAdapter(fake_blog_directory)
+    else:
+        if blog_config is None:
+            raise WorkflowError("Publish has no Blog configuration")
+        adapter = LsforumPublicationAdapter(blog_config)
+    publication_id, publication_result = publish_rewrite(
+        repository,
+        task_id,
+        run_id,
+        adapter,
+        image_policy=image_policy,
+    )
+    run_record["created_publication_ids"].append(publication_id)
+    run_record["attempted_publication_ids"].append(publication_id)
+    run_record["completed_at"] = utc_now()
+    run_record["status"] = "completed"
+    save_record("run", run_directory / "run.json", run_record)
+    report_path = run_directory / "report.md"
+    write_text(
+        report_path,
+        "\n".join(
+            (
+                f"# Run {run_id}",
+                "",
+                "- Status: completed",
+                "- Operation: publish",
+                f"- Task: {task_id}",
+                f"- Image policy: {image_policy}",
+                f"- Publication: {publication_id}",
+                f"- Publication status: {publication_result['status']}",
+                "",
+            )
+        ),
+    )
+    result: dict[str, object] = {
+        "status": "completed",
+        "run_id": run_id,
+        "task_id": task_id,
+        "publication_result": publication_result,
+        "report_path": str(report_path.resolve()),
+        "validation_scope": VALIDATION_SCOPE,
+    }
+    return result
+
+
 def _start_attempt(
     task_directory: Path, task_id: str, run_id: str, operation: str
 ) -> None:

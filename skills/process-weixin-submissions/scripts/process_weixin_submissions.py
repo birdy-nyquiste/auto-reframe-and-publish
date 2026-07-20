@@ -15,6 +15,7 @@ from weixin_submission.workflow import (
     enable_retry,
     initialize_macos_computer_use,
     initialize_scripted_chat,
+    publish_existing_task,
     run_macos_computer_use_window,
     run_scripted_chat,
 )
@@ -95,6 +96,24 @@ def create_parser() -> argparse.ArgumentParser:
     retry = subparsers.add_parser("retry", help="Re-enable a retry-exhausted task.")
     retry.add_argument("--repository", type=Path, required=True)
     retry.add_argument("--task-id", required=True)
+
+    publish = subparsers.add_parser(
+        "publish", help="Publish one existing validated rewrite artifact."
+    )
+    publish.add_argument("--repository", type=Path, required=True)
+    publish.add_argument("--task-id", required=True)
+    publish.add_argument(
+        "--image-policy",
+        choices=("preserve", "omit"),
+        default="preserve",
+        help=(
+            "Preserve local-image requirements, or explicitly derive an audited "
+            "text-only publication body."
+        ),
+    )
+    publish_blog = publish.add_mutually_exclusive_group(required=True)
+    publish_blog.add_argument("--fake-blog-directory", type=Path)
+    publish_blog.add_argument("--blog-config", type=Path)
     return parser
 
 
@@ -156,6 +175,15 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if arguments.operation == "retry":
         with acquire_writer_lock(arguments.repository, "retry"):
             return 0, enable_retry(arguments.repository, arguments.task_id)
+    if arguments.operation == "publish":
+        with acquire_writer_lock(arguments.repository, "publish"):
+            return 0, publish_existing_task(
+                arguments.repository,
+                arguments.task_id,
+                image_policy=arguments.image_policy,
+                fake_blog_directory=arguments.fake_blog_directory,
+                blog_config=arguments.blog_config,
+            )
     raise WorkflowError(f"Unsupported operation: {arguments.operation}")
 
 

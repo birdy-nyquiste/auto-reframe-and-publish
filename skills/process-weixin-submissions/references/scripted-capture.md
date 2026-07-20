@@ -1,6 +1,6 @@
 # Scripted capture contract
 
-`scripted_capture` emulates evidence already collected from one Official Account article. It is an internal validation fixture, not a WeChat sender template and not a substitute for the future Windows Computer Use adapter.
+`scripted_capture` emulates evidence already collected from one Official Account article. It is an internal validation fixture, not a WeChat sender template and not a substitute for a real `macos_computer_use_v1` capture.
 
 ## Text and completeness
 

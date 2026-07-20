@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,6 +20,7 @@ from .publication import (
 from .lsforum_blog import LsforumPublicationAdapter
 from .retry_policy import retry_budget
 from .rewrite import (
+    RewriteGenerator,
     RewriteRejected,
     ScriptedAgentGenerator,
     ScriptedRewriteOutcome,
@@ -56,11 +58,11 @@ from .submission import (
 MISSING_CAPABILITIES = (
     "v1 tracer repository migration",
     "production retry budgets based on operational evidence",
-    "real WeChat UI text and static-image capture adapter",
-    "Windows Computer Use",
+    "supervised macOS Computer Use acceptance suite",
     "approved rewrite policy",
     "real Agent rewrite generation",
 )
+MACOS_MARKER_PATTERN = re.compile(r"marker_[0-9a-f]{32}\Z")
 
 
 class SimulatedInterruption(WorkflowError):
@@ -99,6 +101,32 @@ def initialize_scripted_chat(
     }
 
 
+def initialize_macos_computer_use(
+    repository: Path,
+    marker_id: str,
+) -> dict[str, object]:
+    marker_id = _require_macos_marker(marker_id, "baseline")
+    metadata = initialize_repository(repository)
+    if metadata.get("intake") is not None:
+        raise WorkflowError(
+            "Computer Use intake is already initialized; run the next window instead"
+        )
+    metadata["intake"] = {
+        "adapter": "macos_computer_use_v1",
+        "conversation": "file-transfer-assistant",
+        "last_marker_id": marker_id,
+    }
+    metadata["validation_scope"] = VALIDATION_SCOPE
+    save_record("repository", repository / "repository.json", metadata)
+    return {
+        "status": "initialized",
+        "repository": str(repository.resolve()),
+        "baseline_marker_id": marker_id,
+        "intake_adapter": "macos_computer_use_v1",
+        "validation_scope": VALIDATION_SCOPE,
+    }
+
+
 def run_scripted_chat(
     repository: Path,
     chat_path: Path,
@@ -108,6 +136,7 @@ def run_scripted_chat(
     simulate_interruption_after: str | None = None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
     clipboard_path: Path | None = None,
+    rewrite_generator: RewriteGenerator | None = None,
 ) -> dict[str, object]:
     with ScriptedClipboard(
         clipboard_path or _default_clipboard_path(chat_path), "run"
@@ -121,7 +150,164 @@ def run_scripted_chat(
             clipboard,
             simulate_interruption_after,
             scripted_rewrite_outcome,
+            rewrite_generator,
         )
+
+
+def run_macos_computer_use_window(
+    repository: Path,
+    window_path: Path,
+    publication_selection: str = "none",
+    fake_blog_directory: Path | None = None,
+    blog_config: Path | None = None,
+    simulate_interruption_after: str | None = None,
+    scripted_rewrite_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
+    rewrite_generator: RewriteGenerator | None = None,
+) -> dict[str, object]:
+    window = _read_macos_window(window_path)
+    if publication_selection not in ("none", "auto"):
+        raise WorkflowError(
+            f"Unsupported publication selection: {publication_selection}"
+        )
+    if (
+        publication_selection == "auto"
+        and fake_blog_directory is None
+        and blog_config is None
+    ):
+        raise WorkflowError("Automatic publication requires a configured Blog adapter")
+    metadata = load_record("repository", repository / "repository.json")
+    intake = metadata.get("intake")
+    if not isinstance(intake, dict) or intake.get("adapter") != "macos_computer_use_v1":
+        raise WorkflowError("Initialize macOS Computer Use intake before running")
+    previous_marker_id = str(window["previous_marker_id"])
+    if previous_marker_id != intake.get("last_marker_id"):
+        raise WorkflowError(
+            "macOS captured window previous marker does not match repository cursor"
+        )
+    pending_window = metadata.get("pending_window")
+    if pending_window is None:
+        messages = window["messages"]
+        current_marker_id = str(window["current_marker_id"])
+        candidates = parse_input_window(tuple(messages), current_marker_id)
+        pending_window = {
+            "adapter": window["adapter"],
+            "conversation": window["conversation"],
+            "previous_marker_id": previous_marker_id,
+            "current_marker_id": current_marker_id,
+            "messages": messages,
+            "run_id": new_id("run"),
+            "task_ids": [new_id("task") for _candidate in candidates],
+            "publication_selection": publication_selection,
+        }
+        metadata["pending_window"] = pending_window
+        metadata["validation_scope"] = VALIDATION_SCOPE
+        save_record("repository", repository / "repository.json", metadata)
+    if not isinstance(pending_window, dict):
+        raise WorkflowError("Repository pending_window is invalid")
+    if pending_window.get("adapter") != "macos_computer_use_v1":
+        raise WorkflowError("Pending input window belongs to another intake adapter")
+    if pending_window["publication_selection"] != publication_selection:
+        raise WorkflowError(
+            "The pending input window must resume with its original publication selection"
+        )
+    current_marker_id = str(pending_window["current_marker_id"])
+    messages = pending_window["messages"]
+    candidates = parse_input_window(tuple(messages), current_marker_id)
+    task_ids = pending_window["task_ids"]
+    if not isinstance(task_ids, list) or len(task_ids) != len(candidates):
+        raise WorkflowError("Pending input window task IDs do not match its candidates")
+
+    def commit_input_cursor() -> None:
+        intake["last_marker_id"] = current_marker_id
+        metadata["intake"] = intake
+        metadata["pending_window"] = None
+        metadata["validation_scope"] = VALIDATION_SCOPE
+        save_record("repository", repository / "repository.json", metadata)
+
+    result = _run_candidates(
+        repository,
+        candidates,
+        pending_window,
+        publication_selection,
+        fake_blog_directory,
+        blog_config,
+        simulate_interruption_after,
+        scripted_rewrite_outcome,
+        str(pending_window["run_id"]),
+        [str(task_id) for task_id in task_ids],
+        commit_input_cursor,
+        rewrite_generator,
+    )
+    result["marker_id"] = current_marker_id
+    return result
+
+
+def _read_macos_window(path: Path) -> dict[str, Any]:
+    window = read_json(path)
+    required = {
+        "schema_version",
+        "adapter",
+        "conversation",
+        "previous_marker_id",
+        "current_marker_id",
+        "messages",
+    }
+    if set(window) != required:
+        raise WorkflowError("macOS captured window fields are invalid")
+    if window.get("schema_version") != 1:
+        raise WorkflowError("macOS captured window schema_version must be 1")
+    if window.get("adapter") != "macos_computer_use_v1":
+        raise WorkflowError("macOS captured window adapter is invalid")
+    if window.get("conversation") != "file-transfer-assistant":
+        raise WorkflowError("macOS captured window must be File Transfer Assistant")
+    previous_marker_id = window.get("previous_marker_id")
+    current_marker_id = window.get("current_marker_id")
+    previous_marker_id = _require_macos_marker(previous_marker_id, "previous")
+    current_marker_id = _require_macos_marker(current_marker_id, "current")
+    if previous_marker_id == current_marker_id:
+        raise WorkflowError("macOS captured window markers must differ")
+    messages = window.get("messages")
+    if not isinstance(messages, list) or not all(
+        isinstance(message, dict) for message in messages
+    ):
+        raise WorkflowError("macOS captured window messages must be objects")
+    if any(message.get("kind") == "batch_marker" for message in messages):
+        raise WorkflowError("macOS captured window messages must exclude markers")
+    if any(
+        isinstance(message.get("text"), str)
+        and message["text"].strip().startswith("#批次")
+        for message in messages
+    ):
+        raise WorkflowError(
+            "macOS captured window messages must exclude marker-shaped text"
+        )
+    for message in messages:
+        if message.get("kind") == "official_account_article":
+            if not isinstance(message.get("computer_use_capture"), dict):
+                raise WorkflowError(
+                    "macOS article messages require computer_use_capture"
+                )
+            if any(
+                field in message
+                for field in ("scripted_capture", "body", "images", "source_url")
+            ):
+                raise WorkflowError(
+                    "macOS article messages must not contain scripted capture fields"
+                )
+    message_ids = [message.get("message_id") for message in messages]
+    if any(not isinstance(message_id, str) or not message_id for message_id in message_ids):
+        raise WorkflowError("macOS captured messages require non-empty message IDs")
+    if len(set(message_ids)) != len(message_ids):
+        raise WorkflowError("macOS captured message IDs must be unique")
+    return window
+
+
+def _require_macos_marker(value: object, label: str) -> str:
+    if not isinstance(value, str) or MACOS_MARKER_PATTERN.fullmatch(value) is None:
+        raise WorkflowError(
+            f"macOS {label} marker must match marker_<32 lowercase hex>"
+        )
+    return value
 
 
 def _run_scripted_chat_owned(
@@ -133,6 +319,7 @@ def _run_scripted_chat_owned(
     clipboard: ScriptedClipboard,
     simulate_interruption_after: str | None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome,
+    rewrite_generator: RewriteGenerator | None,
 ) -> dict[str, object]:
     if publication_selection not in ("none", "auto"):
         raise WorkflowError(
@@ -199,6 +386,7 @@ def _run_scripted_chat_owned(
         str(pending_window["run_id"]),
         [str(task_id) for task_id in task_ids],
         commit_input_cursor,
+        rewrite_generator,
     )
     result["marker_id"] = current_marker_id
     return result
@@ -216,6 +404,7 @@ def _run_candidates(
     run_id: str,
     created_task_ids: list[str],
     commit_input_cursor: Callable[[], None],
+    rewrite_generator: RewriteGenerator | None = None,
 ) -> dict[str, object]:
     run_directory = repository / "runs" / run_id
     result_by_task: dict[str, dict[str, object]] = {}
@@ -321,6 +510,7 @@ def _run_candidates(
                 run_id,
                 simulate_interruption_after,
                 scripted_rewrite_outcome,
+                rewrite_generator,
             )
             if not content_ready:
                 blocker = task_record["blocker"]
@@ -420,7 +610,15 @@ def _run_candidates(
         "publication_selection": publication_selection,
         "report_path": str(report_path.resolve()),
         "validation_scope": VALIDATION_SCOPE,
-        "missing_capabilities": list(MISSING_CAPABILITIES),
+        "missing_capabilities": [
+            capability
+            for capability in MISSING_CAPABILITIES
+            if not (
+                capability == "real Agent rewrite generation"
+                and rewrite_generator is not None
+                and rewrite_generator.generator_id == "running_agent_v1"
+            )
+        ],
     }
 
 
@@ -499,6 +697,7 @@ def _process_task(
     run_id: str,
     simulate_interruption_after: str | None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome,
+    rewrite_generator: RewriteGenerator | None = None,
 ) -> bool:
     task_id = task_record["task_id"]
 
@@ -556,7 +755,7 @@ def _process_task(
                 submission,
                 source,
                 run_id,
-                ScriptedAgentGenerator(scripted_rewrite_outcome),
+                rewrite_generator or ScriptedAgentGenerator(scripted_rewrite_outcome),
             )
         except RewriteRejected as error:
             _record_operation_failure(

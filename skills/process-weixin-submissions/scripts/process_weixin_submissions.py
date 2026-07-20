@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Sequence
 
 from weixin_submission.schema_validation import SchemaValidationError, milestones
-from weixin_submission.rewrite import ScriptedRewriteOutcome
+from weixin_submission.rewrite import CodexCliGenerator, ScriptedRewriteOutcome
 from weixin_submission.storage import WorkflowError, repository_status
 from weixin_submission.writer_lock import acquire_writer_lock
 from weixin_submission.workflow import (
     enable_retry,
+    initialize_macos_computer_use,
     initialize_scripted_chat,
+    run_macos_computer_use_window,
     run_scripted_chat,
 )
 
@@ -28,13 +30,30 @@ def create_parser() -> argparse.ArgumentParser:
         "initialize", help="Initialize a task repository."
     )
     initialize.add_argument("--repository", type=Path, required=True)
-    initialize.add_argument("--scripted-chat", type=Path, required=True)
+    initialize_source = initialize.add_mutually_exclusive_group(required=True)
+    initialize_source.add_argument("--scripted-chat", type=Path)
+    initialize_source.add_argument("--macos-marker-id")
     initialize.add_argument("--scripted-clipboard", type=Path)
 
     run = subparsers.add_parser("run", help="Run the next scripted chat window.")
     run.add_argument("--repository", type=Path, required=True)
-    run.add_argument("--scripted-chat", type=Path, required=True)
+    run_source = run.add_mutually_exclusive_group(required=True)
+    run_source.add_argument("--scripted-chat", type=Path)
+    run_source.add_argument("--macos-window", type=Path)
     run.add_argument("--scripted-clipboard", type=Path)
+    run.add_argument(
+        "--rewrite-generator",
+        choices=("scripted", "codex"),
+        help=(
+            "Content generator; defaults to codex for macOS Computer Use and "
+            "scripted for validation fixtures."
+        ),
+    )
+    run.add_argument(
+        "--codex-command",
+        default="codex",
+        help="Codex executable used only with --rewrite-generator codex.",
+    )
     run.add_argument(
         "--publication",
         choices=("none", "auto"),
@@ -82,22 +101,55 @@ def create_parser() -> argparse.ArgumentParser:
 def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if arguments.operation == "initialize":
         with acquire_writer_lock(arguments.repository, "initialize"):
-            return 0, initialize_scripted_chat(
+            if arguments.scripted_chat is not None:
+                return 0, initialize_scripted_chat(
+                    arguments.repository,
+                    arguments.scripted_chat,
+                    arguments.scripted_clipboard,
+                )
+            return 0, initialize_macos_computer_use(
                 arguments.repository,
-                arguments.scripted_chat,
-                arguments.scripted_clipboard,
+                arguments.macos_marker_id,
             )
     if arguments.operation == "run":
+        generator_name = arguments.rewrite_generator or (
+            "codex" if arguments.macos_window is not None else "scripted"
+        )
+        if (
+            arguments.macos_window is not None
+            and generator_name == "scripted"
+            and arguments.publication == "auto"
+        ):
+            raise WorkflowError(
+                "macOS scripted rewrite artifacts cannot be automatically published"
+            )
+        rewrite_generator = (
+            CodexCliGenerator(arguments.codex_command)
+            if generator_name == "codex"
+            else None
+        )
         with acquire_writer_lock(arguments.repository, "run"):
-            return 0, run_scripted_chat(
+            if arguments.scripted_chat is not None:
+                return 0, run_scripted_chat(
+                    arguments.repository,
+                    arguments.scripted_chat,
+                    arguments.publication,
+                    arguments.fake_blog_directory,
+                    arguments.blog_config,
+                    arguments.simulate_interruption_after,
+                    arguments.scripted_rewrite_outcome,
+                    arguments.scripted_clipboard,
+                    rewrite_generator,
+                )
+            return 0, run_macos_computer_use_window(
                 arguments.repository,
-                arguments.scripted_chat,
+                arguments.macos_window,
                 arguments.publication,
                 arguments.fake_blog_directory,
                 arguments.blog_config,
                 arguments.simulate_interruption_after,
                 arguments.scripted_rewrite_outcome,
-                arguments.scripted_clipboard,
+                rewrite_generator,
             )
     if arguments.operation == "status":
         return 0, repository_status(arguments.repository, arguments.disk_warning_bytes)

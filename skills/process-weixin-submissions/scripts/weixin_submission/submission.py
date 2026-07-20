@@ -21,6 +21,8 @@ class StructuredSource:
 
 @dataclass(frozen=True)
 class CaptureInput:
+    adapter: str
+    article_end_method: str
     clipboard_text: str
     source_url: str | None
     article_end_observed: bool
@@ -140,7 +142,17 @@ def parse_submission_messages(messages_value: object, window_id: str) -> Submiss
     task_header = parse_task_header(header_text)
     title = require_string(article.get("title"), "article title")
     scripted_capture = article.get("scripted_capture")
-    if scripted_capture is None:
+    computer_use_capture = article.get("computer_use_capture")
+    if scripted_capture is not None and computer_use_capture is not None:
+        raise WorkflowError(
+            "An article cannot contain both scripted_capture and computer_use_capture"
+        )
+    captured_content = (
+        computer_use_capture
+        if computer_use_capture is not None
+        else scripted_capture
+    )
+    if captured_content is None:
         body = require_string(article.get("body"), "article body")
         source_url_value = article.get("source_url")
         images_value = article.get("images", [])
@@ -148,28 +160,47 @@ def parse_submission_messages(messages_value: object, window_id: str) -> Submiss
             raise WorkflowError(
                 "Legacy scripted articles with images must use scripted_capture"
             )
-        capture = CaptureInput(body, _optional_url(source_url_value), True, True, ())
-    else:
-        if not isinstance(scripted_capture, dict):
-            raise WorkflowError("scripted_capture must be an object")
-        body = require_string(
-            scripted_capture.get("clipboard_text"), "captured clipboard text"
+        capture = CaptureInput(
+            "scripted_capture",
+            "scripted_fixture",
+            body,
+            _optional_url(source_url_value),
+            True,
+            True,
+            (),
         )
-        source_url_value = scripted_capture.get("source_url")
-        article_end_observed = scripted_capture.get("article_end_observed")
+    else:
+        if not isinstance(captured_content, dict):
+            raise WorkflowError("captured article content must be an object")
+        body = require_string(
+            captured_content.get("clipboard_text"), "captured clipboard text"
+        )
+        source_url_value = captured_content.get("source_url")
+        article_end_observed = captured_content.get("article_end_observed")
         if not isinstance(article_end_observed, bool):
             raise WorkflowError("article_end_observed must be boolean")
-        all_static_images_captured = scripted_capture.get(
+        all_static_images_captured = captured_content.get(
             "all_static_images_captured"
         )
         if not isinstance(all_static_images_captured, bool):
             raise WorkflowError("all_static_images_captured must be boolean")
-        media_value = scripted_capture.get("media", [])
+        media_value = captured_content.get("media", [])
         if not isinstance(media_value, list) or not all(
             isinstance(item, dict) for item in media_value
         ):
             raise WorkflowError("scripted capture media must be a list of objects")
+        is_computer_use_capture = computer_use_capture is not None
         capture = CaptureInput(
+            (
+                "macos_computer_use_v1"
+                if is_computer_use_capture
+                else "scripted_capture"
+            ),
+            (
+                "computer_use_visual_confirmation"
+                if is_computer_use_capture
+                else "scripted_fixture"
+            ),
             body,
             _optional_url(source_url_value),
             article_end_observed,

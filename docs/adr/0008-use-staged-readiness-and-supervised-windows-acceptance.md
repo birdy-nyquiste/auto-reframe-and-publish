@@ -1,6 +1,7 @@
 ---
 status: accepted
 amended-by: 0009
+superseded-by: 0011
 ---
 
 # 使用分级就绪与受监督 Windows 验收

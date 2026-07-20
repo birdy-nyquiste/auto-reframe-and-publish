@@ -16,7 +16,7 @@
           "additionalProperties": false,
           "required": ["adapter", "conversation", "last_marker_id"],
           "properties": {
-            "adapter": {"type": "string", "const": "scripted_chat"},
+            "adapter": {"type": "string", "enum": ["scripted_chat", "macos_computer_use_v1"]},
             "conversation": {"type": "string", "const": "file-transfer-assistant"},
             "last_marker_id": {"type": "string"}
           }
@@ -31,7 +31,7 @@
           "additionalProperties": false,
           "required": ["adapter", "conversation", "previous_marker_id", "current_marker_id", "messages", "run_id", "task_ids", "publication_selection"],
           "properties": {
-            "adapter": {"type": "string", "const": "scripted_chat"},
+            "adapter": {"type": "string", "enum": ["scripted_chat", "macos_computer_use_v1"]},
             "conversation": {"type": "string", "const": "file-transfer-assistant"},
             "previous_marker_id": {"type": "string"},
             "current_marker_id": {"type": "string"},

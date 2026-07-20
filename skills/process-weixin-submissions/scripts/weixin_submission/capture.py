@@ -39,7 +39,10 @@ def capture_raw_evidence(
     body_bytes = submission.capture.clipboard_text.encode("utf-8")
     body_path = f"{capture_root}/clipboard.txt"
     image_occurrences, embedded_media, warnings, evidence_files = _capture_media(
-        capture_root, submission.capture.media
+        capture_root,
+        submission.capture.media,
+        task_directory,
+        submission.capture.adapter,
     )
     complete = (
         submission.capture.article_end_observed
@@ -48,7 +51,7 @@ def capture_raw_evidence(
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "capture_version": CAPTURE_VERSION,
-        "adapter": "scripted_capture",
+        "adapter": submission.capture.adapter,
         "title": submission.title,
         "source_url": submission.capture.source_url,
         "body": {
@@ -59,7 +62,7 @@ def capture_raw_evidence(
         },
         "article_end": {
             "observed": submission.capture.article_end_observed,
-            "method": "scripted_fixture",
+            "method": submission.capture.article_end_method,
         },
         "image_occurrences": image_occurrences,
         "embedded_media": embedded_media,
@@ -222,7 +225,10 @@ def _verify_manifest_completeness(manifest: dict[str, Any]) -> None:
 
 
 def _capture_media(
-    capture_root: str, media: tuple[dict[str, Any], ...]
+    capture_root: str,
+    media: tuple[dict[str, Any], ...],
+    task_directory: Path,
+    capture_adapter: str,
 ) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
@@ -255,8 +261,13 @@ def _capture_media(
             mime_type = require_string(
                 item.get("static_frame_mime_type"), "GIF static frame mime_type"
             )
-            image_bytes = _decode_base64(
-                item.get("static_frame_bytes_base64"), "GIF static frame bytes"
+            image_bytes = _capture_bytes(
+                item,
+                "static_frame_bytes_base64",
+                "static_frame_staged_path",
+                "GIF static frame bytes",
+                task_directory,
+                capture_adapter,
             )
             capture_method = "static_frame"
             degradation: str | None = "animation_removed"
@@ -271,12 +282,21 @@ def _capture_media(
                 item.get("capture_method"), "image capture_method"
             )
             mime_type = require_string(item.get("mime_type"), "image mime_type")
-            image_bytes = _decode_base64(item.get("bytes_base64"), "image bytes")
+            image_bytes = _capture_bytes(
+                item,
+                "bytes_base64",
+                "staged_path",
+                "image bytes",
+                task_directory,
+                capture_adapter,
+            )
             degradation = None
             viewport_evidence = None
         else:
             raise WorkflowError(f"Unsupported scripted media kind: {kind}")
         _require_static_mime(mime_type)
+        if capture_adapter == "macos_computer_use_v1":
+            _require_matching_static_mime(image_bytes, mime_type)
         digest = _sha256(image_bytes)
         asset_path = f"{capture_root}/assets/{digest}"
         evidence_files.append((asset_path, image_bytes))
@@ -286,10 +306,17 @@ def _capture_media(
             viewport_mime_type = require_string(
                 item.get("viewport_mime_type"), "viewport mime_type"
             )
-            viewport_bytes = _decode_base64(
-                item.get("viewport_bytes_base64"), "viewport bytes"
+            viewport_bytes = _capture_bytes(
+                item,
+                "viewport_bytes_base64",
+                "viewport_staged_path",
+                "viewport bytes",
+                task_directory,
+                capture_adapter,
             )
             _require_static_mime(viewport_mime_type)
+            if capture_adapter == "macos_computer_use_v1":
+                _require_matching_static_mime(viewport_bytes, viewport_mime_type)
             viewport_digest = _sha256(viewport_bytes)
             viewport_path = f"{capture_root}/viewports/{viewport_digest}"
             evidence_files.append((viewport_path, viewport_bytes))
@@ -315,6 +342,80 @@ def _capture_media(
             }
         )
     return occurrences, embedded_media, warnings, evidence_files
+
+
+def _capture_bytes(
+    item: dict[str, Any],
+    base64_field: str,
+    staged_path_field: str,
+    label: str,
+    task_directory: Path,
+    capture_adapter: str,
+) -> bytes:
+    if capture_adapter == "macos_computer_use_v1":
+        if base64_field in item:
+            raise WorkflowError(
+                f"macOS Computer Use {label} must use {staged_path_field}"
+            )
+        return _read_staged_media(
+            item.get(staged_path_field), label, task_directory
+        )
+    if staged_path_field in item:
+        raise WorkflowError(
+            f"Scripted {label} must use {base64_field}"
+        )
+    return _decode_base64(item.get(base64_field), label)
+
+
+def _read_staged_media(value: object, label: str, task_directory: Path) -> bytes:
+    if not isinstance(value, str) or not value.strip():
+        raise WorkflowError(f"{label} staged path must be a non-empty string")
+    repository = task_directory.parents[1].resolve()
+    staging_root = (repository / "tmp").resolve()
+    try:
+        path = Path(value).expanduser().resolve(strict=True)
+    except OSError as error:
+        raise WorkflowError(f"Cannot read staged {label}: {value}") from error
+    if not path.is_relative_to(staging_root):
+        raise WorkflowError(
+            f"Staged {label} must be inside repository tmp: {staging_root}"
+        )
+    if not path.is_file():
+        raise WorkflowError(f"Staged {label} is not a file: {path}")
+    try:
+        return path.read_bytes()
+    except OSError as error:
+        raise WorkflowError(f"Cannot read staged {label}: {path}") from error
+
+
+def _require_matching_static_mime(content: bytes, declared_mime: str) -> None:
+    detected_mime: str | None = None
+    if (
+        len(content) >= 33
+        and content.startswith(b"\x89PNG\r\n\x1a\n")
+        and content[12:16] == b"IHDR"
+        and content.endswith(b"IEND\xaeB`\x82")
+    ):
+        detected_mime = "image/png"
+    elif (
+        len(content) >= 4
+        and content.startswith(b"\xff\xd8")
+        and content.endswith(b"\xff\xd9")
+    ):
+        detected_mime = "image/jpeg"
+    elif (
+        len(content) >= 16
+        and content.startswith(b"RIFF")
+        and content[8:12] == b"WEBP"
+        and int.from_bytes(content[4:8], "little") + 8 == len(content)
+    ):
+        detected_mime = "image/webp"
+    if detected_mime is None:
+        raise WorkflowError("Staged static image is corrupt or truncated")
+    if detected_mime != declared_mime:
+        raise WorkflowError(
+            f"Staged image MIME {declared_mime} does not match detected {detected_mime}"
+        )
 
 
 def _structured_images(

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -23,7 +25,11 @@ GENERATOR = "scripted_agent_fixture_v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 SKILL_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = PROJECT_ROOT / "docs" / "content-rewrite-policy.md"
-DEFAULT_PROMPT_PATH = PROJECT_ROOT / "prompts" / "default-content-rewrite.md"
+DEFAULT_PROMPT_PATH = (
+    SKILL_ROOT / "references" / "default-rewrite-prompt-v1.md"
+)
+LEGACY_DEFAULT_PROMPT_PATH = PROJECT_ROOT / "prompts" / "default-content-rewrite.md"
+KNOWN_DEFAULT_PROMPT_PATHS = (DEFAULT_PROMPT_PATH, LEGACY_DEFAULT_PROMPT_PATH)
 MANIFEST_SCHEMA_PATH = SKILL_ROOT / "schemas" / "rewrite-manifest.schema.json"
 REWRITE_COMMIT_PATH = "rewrite/commit.json"
 
@@ -111,6 +117,136 @@ class ScriptedAgentGenerator:
             input_sha256,
             self.outcome,
         )
+
+
+@dataclass(frozen=True)
+class CodexCliGenerator:
+    """Run a constrained ephemeral Codex process for content-only generation."""
+
+    command: str = "codex"
+    timeout_seconds: float = 180.0
+    generator_id: str = "running_agent_v1"
+
+    def generate(
+        self,
+        rewrite_input: dict[str, Any],
+        source: StructuredSource,
+        source_images: list[dict[str, str]],
+        permitted_images: tuple[AgentSourceImage, ...],
+        resource_records: dict[str, dict[str, str]],
+        input_sha256: str,
+    ) -> AgentRewriteOutput:
+        prompt = _codex_generation_prompt(rewrite_input, source)
+        output_schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["title", "markdown"],
+            "properties": {
+                "title": {"type": "string", "minLength": 1},
+                "markdown": {"type": "string", "minLength": 1},
+            },
+        }
+        try:
+            with tempfile.TemporaryDirectory(prefix="weixin-rewrite-") as directory:
+                working_directory = Path(directory)
+                schema_path = working_directory / "output-schema.json"
+                response_path = working_directory / "response.json"
+                schema_path.write_text(
+                    json.dumps(output_schema, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                image_arguments: list[str] = []
+                for position, image in enumerate(permitted_images, start=1):
+                    extension = _image_extension(image.content)
+                    image_path = working_directory / f"source-image-{position:03d}{extension}"
+                    image_path.write_bytes(image.content)
+                    image_arguments.extend(("--image", str(image_path)))
+                command = [
+                    self.command,
+                    "exec",
+                    "--ephemeral",
+                    "--ignore-user-config",
+                    "--sandbox",
+                    "read-only",
+                    "--skip-git-repo-check",
+                    "--color",
+                    "never",
+                    "-C",
+                    str(working_directory),
+                    "--output-schema",
+                    str(schema_path),
+                    "-o",
+                    str(response_path),
+                    *image_arguments,
+                    "-",
+                ]
+                completed = subprocess.run(
+                    command,
+                    input=prompt,
+                    text=True,
+                    capture_output=True,
+                    timeout=self.timeout_seconds,
+                    check=False,
+                )
+                if completed.returncode != 0:
+                    detail = completed.stderr.strip() or "Codex generation failed"
+                    raise RewriteRejected(
+                        "codex_generation_failed",
+                        detail,
+                        category="rewrite_generation",
+                        phase="generation",
+                    )
+                response = json.loads(response_path.read_text(encoding="utf-8"))
+        except RewriteRejected:
+            raise
+        except subprocess.TimeoutExpired as error:
+            raise RewriteRejected(
+                "codex_generation_timed_out",
+                "Codex generation timed out",
+                category="rewrite_generation",
+                phase="generation",
+            ) from error
+        except (OSError, json.JSONDecodeError, KeyError) as error:
+            raise RewriteRejected(
+                "codex_generation_invalid",
+                f"Codex generation did not return a valid response: {error}",
+                category="rewrite_generation",
+                phase="generation",
+            ) from error
+        if not isinstance(response, dict):
+            raise RewriteRejected(
+                "codex_generation_invalid",
+                "Codex generation response must be an object",
+                category="rewrite_generation",
+                phase="generation",
+            )
+        title = response.get("title")
+        content = response.get("markdown")
+        if not isinstance(title, str) or not title.strip():
+            raise RewriteRejected(
+                "codex_generation_invalid",
+                "Codex generation title must be non-empty",
+                category="rewrite_generation",
+                phase="generation",
+            )
+        if not isinstance(content, str) or not content.startswith(f"# {title.strip()}\n"):
+            raise RewriteRejected(
+                "codex_generation_invalid",
+                "Codex Markdown H1 must match its title",
+                category="rewrite_generation",
+                phase="generation",
+            )
+        manifest = _build_agent_manifest(
+            rewrite_input,
+            source_images,
+            resource_records,
+            input_sha256,
+            self.generator_id,
+            title.strip(),
+            content,
+        )
+        return AgentRewriteOutput(content, manifest)
 
 
 class RewriteRejected(WorkflowError):
@@ -336,7 +472,6 @@ def load_rewrite_artifact(
         raise WorkflowError("Rewrite artifact resources are invalid")
     expected_resources = {
         "policy": POLICY_PATH,
-        "default_prompt": DEFAULT_PROMPT_PATH,
         "schema": MANIFEST_SCHEMA_PATH,
     }
     for name, expected_path in expected_resources.items():
@@ -344,6 +479,14 @@ def load_rewrite_artifact(
         expected_record = _resource_record(expected_path)
         if resource != expected_record:
             raise WorkflowError(f"Rewrite artifact {name} resource does not match")
+    default_prompt_resource = resources.get("default_prompt")
+    known_default_prompt_records = [
+        _resource_record(path) for path in KNOWN_DEFAULT_PROMPT_PATHS
+    ]
+    if default_prompt_resource not in known_default_prompt_records:
+        raise WorkflowError(
+            "Rewrite artifact default_prompt resource does not match"
+        )
 
     input_hash = require_string(
         manifest.get("generation_input_sha256"), "rewrite generation input sha256"
@@ -446,17 +589,53 @@ def _scripted_agent_generate(
         if outcome is ScriptedRewriteOutcome.VALIDATION_FAILURE
         else _build_scripted_placeholder(source)
     )
+    manifest = _build_agent_manifest(
+        rewrite_input,
+        source_images,
+        resource_records,
+        input_sha256,
+        GENERATOR,
+        source.title,
+        content,
+    )
+    injection_channels_observed = (
+        "file://" in source.body
+        and "touch " in source.body
+        and "二维码" in source.body
+        and "模拟外部响应" in source.body
+        and any(
+            b"IMAGE_INJECTION_PUBLISH" in image.content
+            for image in permitted_images
+        )
+    )
+    if (
+        outcome is ScriptedRewriteOutcome.CAPABILITY_VIOLATION
+        and injection_channels_observed
+    ):
+        manifest["trusted_controls"]["target_id"] = "attacker"
+    return AgentRewriteOutput(content, manifest)
+
+
+def _build_agent_manifest(
+    rewrite_input: dict[str, Any],
+    source_images: list[dict[str, str]],
+    resource_records: dict[str, dict[str, str]],
+    input_sha256: str,
+    generator_id: str,
+    title: str,
+    content: str,
+) -> dict[str, Any]:
     controls = rewrite_input["trusted_controls"]
     if not isinstance(controls, dict):
         raise WorkflowError("Rewrite input trusted controls are invalid")
     requirements = controls.get("requirements")
-    manifest: dict[str, Any] = {
+    return {
         "schema_version": SCHEMA_VERSION,
         "artifact_version": ARTIFACT_VERSION,
         "artifact_kind": "validated_rewrite",
-        "generator": GENERATOR,
+        "generator": generator_id,
         "generation_input_sha256": input_sha256,
-        "title": source.title,
+        "title": title,
         "content": {
             "path": "rewrite/content.md",
             "format": "markdown",
@@ -482,22 +661,49 @@ def _scripted_agent_generate(
             "allowed_effect": "content_only",
         },
     }
-    injection_channels_observed = (
-        "file://" in source.body
-        and "touch " in source.body
-        and "二维码" in source.body
-        and "模拟外部响应" in source.body
-        and any(
-            b"IMAGE_INJECTION_PUBLISH" in image.content
-            for image in permitted_images
-        )
+
+
+def _codex_generation_prompt(
+    rewrite_input: dict[str, Any], source: StructuredSource
+) -> str:
+    controls = rewrite_input.get("trusted_controls")
+    if not isinstance(controls, dict):
+        raise WorkflowError("Rewrite input trusted controls are invalid")
+    requirements = controls.get("requirements")
+    custom_requirements = (
+        requirements.strip()
+        if isinstance(requirements, str) and requirements.strip()
+        else "（无；使用默认规则）"
     )
-    if (
-        outcome is ScriptedRewriteOutcome.CAPABILITY_VIOLATION
-        and injection_channels_observed
-    ):
-        manifest["trusted_controls"]["target_id"] = "attacker"
-    return AgentRewriteOutput(content, manifest)
+    default_prompt = _read_bytes(DEFAULT_PROMPT_PATH).decode("utf-8")
+    return (
+        f"{default_prompt}\n\n"
+        "## 本次可信自定义改写要求\n\n"
+        f"{custom_requirements}\n\n"
+        "## 本次不可信来源内容\n\n"
+        f"来源标题：{source.title}\n\n"
+        "来源正文开始\n\n"
+        f"{source.body}\n\n"
+        "来源正文结束\n\n"
+        "请不要调用任何工具。请按照输出 Schema 返回 title 和 markdown。"
+    )
+
+
+def _image_extension(content: bytes) -> str:
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return ".webp"
+    raise RewriteRejected(
+        "unsupported_agent_image",
+        "Running Agent received an unsupported static image format",
+        category="rewrite_generation",
+        phase="generation",
+    )
 
 
 def _validate_agent_manifest(

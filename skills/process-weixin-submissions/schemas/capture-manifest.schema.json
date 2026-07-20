@@ -19,7 +19,10 @@
   "properties": {
     "schema_version": {"type": "integer", "const": 2},
     "capture_version": {"type": "integer", "const": 1},
-    "adapter": {"type": "string", "const": "scripted_capture"},
+    "adapter": {
+      "type": "string",
+      "enum": ["scripted_capture", "macos_computer_use_v1"]
+    },
     "title": {"type": "string"},
     "source_url": {"type": ["string", "null"]},
     "body": {
@@ -39,7 +42,10 @@
       "required": ["observed", "method"],
       "properties": {
         "observed": {"type": "boolean"},
-        "method": {"type": "string", "const": "scripted_fixture"}
+        "method": {
+          "type": "string",
+          "enum": ["scripted_fixture", "computer_use_visual_confirmation"]
+        }
       }
     },
     "image_occurrences": {

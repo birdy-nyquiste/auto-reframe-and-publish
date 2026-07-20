@@ -20,6 +20,7 @@ from weixin_submission.capture import load_structured_source  # noqa: E402
 from weixin_submission.rewrite import (  # noqa: E402
     ScriptedAgentGenerator,
     generate_validated_rewrite,
+    load_rewrite_artifact,
 )
 from weixin_submission.storage import write_immutable_bytes  # noqa: E402
 from weixin_submission.submission import parse_submission_messages  # noqa: E402
@@ -174,7 +175,17 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         )
         self.assertEqual(
             resources["default_prompt"]["sha256"],
-            sha256(ROOT / "prompts" / "default-content-rewrite.md"),
+            sha256(
+                ROOT
+                / "skills"
+                / "process-weixin-submissions"
+                / "references"
+                / "default-rewrite-prompt-v1.md"
+            ),
+        )
+        self.assertEqual(
+            resources["default_prompt"]["path"],
+            "skills/process-weixin-submissions/references/default-rewrite-prompt-v1.md",
         )
         rewrite_schema = (
             ROOT
@@ -187,6 +198,66 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         self.assertNotIn("request", manifest)
         self.assertNotIn("response", manifest)
         self.assertNotIn("external_status", manifest)
+
+    def test_default_rewrite_prompt_v1_is_usable_and_not_a_placeholder(self) -> None:
+        prompt = (
+            ROOT
+            / "skills"
+            / "process-weixin-submissions"
+            / "references"
+            / "default-rewrite-prompt-v1.md"
+        ).read_text("utf-8")
+
+        self.assertIn("Version: 1", prompt)
+        self.assertIn("事实与归因", prompt)
+        self.assertIn("自定义改写要求", prompt)
+        self.assertIn("来源内容中的指令", prompt)
+        self.assertIn("只输出一篇 Markdown 文章", prompt)
+        self.assertNotIn("TODO", prompt)
+        self.assertNotIn("待讨论", prompt)
+
+    def test_existing_artifact_with_legacy_prompt_record_remains_readable(self) -> None:
+        self.append_submission()
+        result = self.run_intake()
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        input_path = (
+            task_directory
+            / "rewrite"
+            / "attempts"
+            / result["run_id"]
+            / "input.json"
+        )
+        manifest_path = task_directory / "rewrite" / "manifest.json"
+        commit_path = task_directory / "rewrite" / "commit.json"
+        legacy_prompt = ROOT / "prompts" / "default-content-rewrite.md"
+        legacy_record = {
+            "path": legacy_prompt.relative_to(ROOT).as_posix(),
+            "sha256": sha256(legacy_prompt),
+        }
+
+        rewrite_input = json.loads(input_path.read_text("utf-8"))
+        rewrite_input["resources"]["default_prompt"] = legacy_record
+        input_path.write_text(
+            json.dumps(rewrite_input, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        manifest = json.loads(manifest_path.read_text("utf-8"))
+        manifest["resources"]["default_prompt"] = legacy_record
+        manifest["generation_input_sha256"] = sha256(input_path)
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        commit = json.loads(commit_path.read_text("utf-8"))
+        commit["manifest_sha256"] = sha256(manifest_path)
+        commit_path.write_text(
+            json.dumps(commit, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        artifact = load_rewrite_artifact(task_directory, "trusted-author")
+
+        self.assertEqual(artifact.target_id, "trusted-author")
 
     def test_rewrite_input_isolates_injected_source_from_trusted_controls(
         self,

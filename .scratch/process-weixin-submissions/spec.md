@@ -4,7 +4,7 @@ Status: ready-for-agent
 
 ## Goal
 
-在一台固定 Windows 主机上，由操作人手动触发一个仓库内 Skill，一次读取文件传输助手里自上次边界标记以来的新增投稿，持久化原始证据，生成经验证的改写产物；只有操作人在本次 `run` 中明确选择自动发布时，才把本次新产物交给 Blog 即时公开接口。
+在当前固定 macOS 主机上，由操作人手动触发一个仓库内 Skill，一次读取文件传输助手里自上次边界标记以来的新增投稿，持久化原始证据，生成经验证的改写产物；只有操作人在本次 `run` 中明确选择自动发布时，才把本次新产物交给 Blog 即时公开接口。
 
 采集和内容处理与发布是两个独立流程。投稿任务的完成条件是改写产物已提交；发布任务的完成条件是外部服务已确认公开。发布失败不得改变或回滚投稿任务。
 
@@ -47,7 +47,7 @@ Run、投稿任务和发布任务是同级聚合：
 - 第一版只支持静态图；每次图片出现保留顺序，重复字节可去重。GIF 只保存静态帧并注明降级；视频和音频不下载、不转录。
 - raw 证据不可变；sources 可从 raw 重建；改写产物是 Markdown 加 Schema 验证的 manifest，提交后不可变。
 - 只有任务头字段是可信控制输入。文章正文、图片、链接、二维码和外部响应都不能改变目标、读取本地文件、执行命令或扩大外部能力。
-- “洗稿”的正式定义和默认提示词分别保存在独立 Markdown 文档中；未完成前不宣称正式内容质量验收通过。
+- “洗稿”的正式定义和默认提示词分别保存在独立 Markdown 文档中。当前先采用版本化默认提示词 v1；正式定义未完成前不宣称正式内容质量验收通过。
 
 ## Publication
 
@@ -76,7 +76,7 @@ Run、投稿任务和发布任务是同级聚合：
 
 ## Verification
 
-Mac 自动化测试的最高 seam 是 CLI `run`：使用脚本化微信与剪贴板、临时文件任务库、确定性 Agent 产物，以及 fake 或本地 HTTP Blog fixture，通过任务库、报告和观察到的 HTTP 请求验收行为，不测试私有函数。
+自动化测试的最高 seam 是 CLI `run`：使用脚本化输入或经验证的 macOS captured-window、临时文件任务库、确定性/边界 fake Agent，以及 fake 或本地 HTTP Blog fixture，通过任务库、报告和观察到的外部请求验收行为，不测试私有函数。
 
 必须覆盖：
 
@@ -87,7 +87,7 @@ Mac 自动化测试的最高 seam 是 CLI `run`：使用脚本化微信与剪贴
 - 发布状态、version/ETag 持久化、管理 GET 认证、PATCH `X-Post-Version`、428 前置条件、412 版本冲突、软删除、恢复与只读 revisions 的 HTTP 契约。
 - 多任务排序与失败隔离、中断后从最后提交里程碑恢复、状态和报告可重建。
 
-Windows Computer Use 和真实 Blog 分别需要监督式验收。Readiness 分为 `core_validated`、`windows_validated` 和 `ready`；只有所有正式依赖都验收后才能报告 `ready`。
+当前 Mac 的 Computer Use 和真实 Blog 分别需要监督式验收。Readiness 分为 `core_validated`、`macos_validated` 和 `ready`；只有所有正式依赖都验收后才能报告 `ready`。
 
 ## Out of scope
 

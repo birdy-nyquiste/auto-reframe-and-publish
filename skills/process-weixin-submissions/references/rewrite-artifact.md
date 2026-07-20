@@ -1,6 +1,6 @@
 # Rewrite artifact contract
 
-The content boundary accepts an Agent output pair: Markdown plus a manifest. The current automated core suite uses `scripted_agent_fixture_v1` to exercise that contract; it does not claim an approved rewrite policy or a live Codex/Claude generation adapter. Ticket 09 supplies the formal policy and prompt after those independent resources are approved.
+The content boundary accepts Markdown plus a deterministically built manifest. Automated core tests use `scripted_agent_fixture_v1`; the macOS path uses `running_agent_v1`, backed by an ephemeral, read-only `codex exec` subprocess with a strict title/Markdown output Schema. The versioned default prompt v1 is active for current use. Ticket 09 still owns the separately approved formal content policy and any later prompt version.
 
 ## Input boundary
 
@@ -33,4 +33,4 @@ A generation failure has `input.json` plus `failure.json`. A validation failure 
 
 The committed manifest records content and source hashes, ordered content-addressed images, trusted-control mode and hashes, resource hashes, and the security boundary. It has no Blog request, response, publication, or deployment fields. `commit.json` independently anchors the exact manifest bytes. Delivery records a complete validation attempt and verifies the commit anchor, generation input, requirements, current trusted resources, structured source, Markdown, target, image confinement, and every recorded hash before using the artifact.
 
-`--scripted-rewrite-outcome generation_failure|validation_failure|capability_violation` is a validation-only fixture switch. Do not use it for an operator's production task.
+`--rewrite-generator codex` is required for a real macOS content run. `--scripted-rewrite-outcome generation_failure|validation_failure|capability_violation` and `--rewrite-generator scripted` are validation-only fixtures; do not use them for an operator's real task.

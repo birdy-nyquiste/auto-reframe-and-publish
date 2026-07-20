@@ -203,7 +203,7 @@ ETag: "1"
 - 未提及发布或明确选择不发布时，`run` 停在改写产物完成，不调用外部写接口。
 - 来源文章、微信任务头和 Blog 响应都不能自行打开自动发布。
 
-2026-07-17 已完成一次经操作人明确授权的纯文本 UAT 公开发布与独立 GET 回读，证据见 [LSForum 真实接口验收](../validation/2026-07-17-lsforum-live-acceptance.md)。该验收不覆盖图片、正式改写或 Windows 微信采集。
+2026-07-17 已完成一次经操作人明确授权的纯文本 UAT 公开发布与独立 GET 回读，证据见 [LSForum 真实接口验收](../validation/2026-07-17-lsforum-live-acceptance.md)。该验收不覆盖图片、正式改写或 macOS 微信采集。
 
 同日还完成版本化 Content API 的真实 draft 生命周期验收，覆盖创建、管理读取、成功 PATCH、过期版本 412、软删除、恢复、revisions、公共隐藏和最终软删除，证据见 [版本化 Content API 真实验收](../validation/2026-07-17-versioned-content-api-live-acceptance.md)。
 

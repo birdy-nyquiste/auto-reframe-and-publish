@@ -67,7 +67,7 @@ weixin-blog-publish-data/
 │       └── ...
 ```
 
-这是当前脚本化适配器实际写出的目录。媒体文件采用 SHA-256 内容寻址且不依赖扩展名；MIME 类型、文章内出现顺序、采集方法、降级信息和哈希都保存在 `manifest.json`。相同字节只保存一次，但每次文章内出现仍有独立清单项。真实 Windows Computer Use 采集适配器尚未实现，但不会改变三个聚合的同级关系。
+这是当前脚本化适配器和 `macos_computer_use_v1` captured-window 共同写出的目录。媒体文件采用 SHA-256 内容寻址且不依赖扩展名；MIME 类型、文章内出现顺序、采集方法、降级信息和哈希都保存在 `manifest.json`。相同字节只保存一次，但每次文章内出现仍有独立清单项。真实 macOS Computer Use 负责生成待验证窗口，不会改变三个聚合的同级关系。
 
 ## Relationships
 

@@ -75,6 +75,6 @@ Use a text message followed immediately by one Official Account article:
 ]
 ```
 
-The task header recognizes `目标`, optional `文章数: 1`, and optional `要求`. Requirements consume the remainder of the message. Omitted or empty requirements select the default placeholder behavior. Unknown or duplicate control fields, missing targets, non-adjacent articles, unsupported message kinds, and article counts other than one create independent `needs_input` tasks.
+The task header recognizes `目标`, optional `文章数: 1`, and optional `要求`. Requirements consume the remainder of the message. Omitted or empty requirements select default mode; scripted generation still emits a validation placeholder, while the real Codex generator applies the active versioned default prompt. Unknown or duplicate control fields, missing targets, non-adjacent articles, unsupported message kinds, and article counts other than one create independent `needs_input` tasks.
 
 `scripted_capture` is a deterministic development adapter, not extra syntax that a WeChat sender must type. See [scripted-capture.md](scripted-capture.md) for media fixtures, evidence guarantees, and limitations. A legacy fixture with only `body`, optional `source_url`, and an empty `images` array remains accepted for existing core tests; new fixtures should use `scripted_capture`.

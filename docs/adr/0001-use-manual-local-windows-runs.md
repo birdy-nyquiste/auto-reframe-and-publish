@@ -1,5 +1,6 @@
 ---
 status: accepted
+superseded-by: 0011
 ---
 
 # 在固定 Windows 主机上人工触发本地运行

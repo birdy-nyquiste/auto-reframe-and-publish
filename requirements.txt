@@ -1,0 +1,2 @@
+# Official SDK used only when publishing local images to Public Vercel Blob.
+vercel==0.3.4

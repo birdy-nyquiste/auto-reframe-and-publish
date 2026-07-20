@@ -1,6 +1,6 @@
 # LSForum Blog 外部接口参考
 
-> 状态：外部接口参考，不是本项目拥有的契约。本文于 2026-07-17 根据 Blog 团队材料整理，并由部署中的 OpenAPI v1.2.0 与真实 draft 生命周期 UAT 校正。实现仍应以部署 OpenAPI、环境配置和变更通知为准。
+> 状态：外部接口参考，不是本项目拥有的契约。本文最初于 2026-07-17 整理，并于 2026-07-20 根据 Blog 团队 v0.5 文档及部署中的 OpenAPI v1.4.0 更新图片与作者身份部分。实现仍应以部署 OpenAPI、环境配置和变更通知为准。
 
 ## 用途
 
@@ -13,7 +13,7 @@
 | 项目 | 当前信息 |
 | --- | --- |
 | Base URL | `https://blog-lsforum.vercel.app/api/v1` |
-| 部署 OpenAPI | `1.2.0`（2026-07-17 实际读取） |
+| 部署 OpenAPI | `1.4.0`（2026-07-20 实际读取） |
 | 正式/测试环境 | 只提供了一个当前地址，未确认独立测试环境 |
 | 内容类型 | file-based post、import、API-ingested external post |
 | 写入存储 | Postgres `ingested_posts` |
@@ -67,8 +67,8 @@ Authorization: Bearer <INGEST_API_KEY>
 | --- | --- | --- | --- |
 | `title` | string | 是 | 最多 200 字符 |
 | `content` | string | 是 | Markdown；raw HTML 不渲染 |
-| `author` | object | 否 | 首选作者身份；name 必填，可含 externalId、slug、title、orgSlug |
-| `authorName` | string | 否 | 旧版自由文本作者名 |
+| `author` | object | 新接入要求 | 稳定作者身份；`externalId` 与 `name` 必填，可含 slug、title、orgSlug |
+| `authorName` | string | 否 | 旧版自由文本作者名，仅供历史兼容 |
 | `authorExternalId` | string | 否 | 调用方稳定作者 ID |
 | `authorSlug` | string | 否 | 公开作者 slug |
 | `excerpt` | string | 否 | 最多 500 字符；省略时从正文生成 |
@@ -93,7 +93,10 @@ Authorization: Bearer <INGEST_API_KEY>
 ```json
 {
   "title": "How users are adopting AI agents",
-  "authorName": "Jane Doe",
+  "author": {
+    "externalId": "author_01example",
+    "name": "Jane Doe"
+  },
   "content": "# Heading\n\nMarkdown body goes here.",
   "status": "published"
 }
@@ -165,15 +168,16 @@ ETag: "1"
 
 ## 图片能力
 
-当前接口只定义一个公开 http(s) `image` URL，语义是卡片和 hero 封面图。材料没有提供：
+POST/PATCH 只接收 JSON URL，不接收 multipart、Base64 或 data URL。`image` 是卡片和 hero 封面；正文多图直接写在 `content` / `contentZh` 的 Markdown `![](url)` 中。
 
-- 图片上传 endpoint；
-- 正文多图资源模型；
-- 本地图片转公开 URL 的流程；
-- 图片类型、大小、数量或总请求限制；
-- 远程图片抓取、缓存和失败语义。
+- 可传普通 http(s) 图片、Public Vercel Blob URL 或站内 `/assets` 路径。
+- Blog 会把普通外部 http(s) 图片镜像到自身 Public Vercel Blob；若已是 `.public.blob.vercel-storage.com` URL，则跳过重复上传。
+- 本地文件推荐由调用方先用 Vercel Blob `put` 上传，再把返回 URL 写入正文和 `image`。
+- 支持 JPEG、PNG、WebP、GIF；每张不超过 10 MB。
+- 每个 Markdown 字段最多 20 个不同的外部行内图片 URL；超过 5 张时建议调用方先直接上传 Blob。
+- 当前部署 OpenAPI 的 `content` 最大长度为 100000 字符。
 
-因此，包含本地图片的发布任务必须先获得稳定公开 URL。图片托管能力未配置时，不得静默丢弃图片后发布。
+本项目采用直接 Public Blob 上传，因此固定请求中的正文和封面已经是最终 URL，Blog 不需要再次改写 URL，未知结果确认仍可进行精确正文比较。只有经过改写 Agent 选择并实际出现在 Markdown 中的本地图片会上传；未使用的来源图片不会因发布而公开。
 
 ## 幂等、重试和未知结果
 
@@ -215,9 +219,9 @@ ETag: "1"
 - 未知 JSON 字段是拒绝还是忽略。
 - `author` 与 `authorName` 同时出现时的优先级。
 - `tags` 两种输入形态的规范化规则。
-- 正文大小、请求体大小、速率和并发限制。
+- 除已知正文 100000 字符与图片限制外的请求体总大小、速率和并发限制。
 - 成功写入与公共读取之间是否存在延迟。
-- 远程 image URL 是否由 Blog 下载、代理或永久外链。
+- Public Blob 的保留、清理、计费归属与孤立资源清理策略。
 - key 的轮换、撤销、scope 和目标隔离能力。
 - ETag 是否也可能在 JSON 中返回，以及 revisions 是否会增加分页或保留期限。
 - 版本 header 为何偏离同事消息中的 `If-Match`，以及未来是否会再次迁移到标准条件请求头。
@@ -228,7 +232,8 @@ ETag: "1"
 - Blog 团队 `api.md`：总体读取和写入接口、公共内容结构、组织及字段字典。
 - Blog 团队 `ingestion.md`：部署地址、认证、即时发布流程、UAT、早期编辑限制及无幂等警告。
 - Blog 团队 2026-07-17 Content API 更新说明：status、manage 读取、条件 PATCH、软删除、恢复、revisions 与统一认证。
-- 部署中的 `/api/v1/openapi.json` v1.2.0：当前路径、header、字段、成功/错误 Schema。
+- Blog 团队 2026-07-20 `api.md` v0.5：作者身份、Public Blob 与正文图片规则。
+- 部署中的 `/api/v1/openapi.json` v1.4.0：当前路径、header、字段、图片限制与成功/错误 Schema。
 - 2026-07-17 真实 draft 生命周期 UAT：确认部署行为及版本递增、ETag、公共隐藏和 revisions 快照。
 
 两份原始文件位于项目仓库之外，没有作为正式 vendor snapshot 提交。若对方文档更新，应重新核对本参考，而不是假设其自动同步。

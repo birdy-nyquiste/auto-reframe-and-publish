@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from weixin_submission.schema_validation import SchemaValidationError, milestones
+from weixin_submission.environment import load_env_file
 from weixin_submission.rewrite import CodexCliGenerator, ScriptedRewriteOutcome
 from weixin_submission.storage import WorkflowError, repository_status
 from weixin_submission.writer_lock import acquire_writer_lock
@@ -104,12 +105,26 @@ def create_parser() -> argparse.ArgumentParser:
     publish.add_argument("--task-id", required=True)
     publish.add_argument(
         "--image-policy",
-        choices=("preserve", "omit"),
+        choices=("preserve", "omit", "upload"),
         default="preserve",
         help=(
-            "Preserve local-image requirements, or explicitly derive an audited "
-            "text-only publication body."
+            "Preserve local-image requirements, explicitly derive an audited "
+            "text-only body, or upload referenced images to Public Blob storage."
         ),
+    )
+    publish.add_argument(
+        "--cover-image",
+        help="Referenced source-image-NNN.ext selected by the rewrite Agent as cover.",
+    )
+    publish.add_argument(
+        "--fake-blob-directory",
+        type=Path,
+        help="Validation-only fake public Blob service used with image-policy upload.",
+    )
+    publish.add_argument(
+        "--env-file",
+        type=Path,
+        help="Local secret file loaded without shell expansion before publication.",
     )
     publish_blog = publish.add_mutually_exclusive_group(required=True)
     publish_blog.add_argument("--fake-blog-directory", type=Path)
@@ -176,6 +191,8 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
         with acquire_writer_lock(arguments.repository, "retry"):
             return 0, enable_retry(arguments.repository, arguments.task_id)
     if arguments.operation == "publish":
+        if arguments.env_file is not None:
+            load_env_file(arguments.env_file)
         with acquire_writer_lock(arguments.repository, "publish"):
             return 0, publish_existing_task(
                 arguments.repository,
@@ -183,6 +200,8 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 image_policy=arguments.image_policy,
                 fake_blog_directory=arguments.fake_blog_directory,
                 blog_config=arguments.blog_config,
+                fake_blob_directory=arguments.fake_blob_directory,
+                cover_image=arguments.cover_image,
             )
     raise WorkflowError(f"Unsupported operation: {arguments.operation}")
 

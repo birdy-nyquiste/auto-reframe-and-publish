@@ -69,6 +69,11 @@ def _author_object_error(author: object) -> str | None:
         return f"author has unsupported fields: {unknown_fields}"
     if not isinstance(author.get("name"), str) or not author["name"].strip():
         return "author requires a non-empty name"
+    if (
+        not isinstance(author.get("externalId"), str)
+        or not author["externalId"].strip()
+    ):
+        return "author requires a non-empty externalId"
     for field in ("externalId", "slug", "title", "orgSlug"):
         value = author.get(field)
         if value is not None and not isinstance(value, str):
@@ -207,6 +212,26 @@ class LsforumContentApiAdapter:
                 "publication_request_invalid",
                 "Blog content must be non-empty Markdown",
             )
+        images = request.get("images")
+        if not isinstance(images, list) or not all(
+            isinstance(url, str) and url.startswith("https://") for url in images
+        ):
+            raise PublicationError(
+                PublicationBlockerKind.PERMANENT_FAILURE,
+                "publication_request_invalid",
+                "Blog images must be HTTPS URLs",
+            )
+        cover_image = request.get("cover_image")
+        if cover_image is not None and (
+            not isinstance(cover_image, str)
+            or not cover_image.startswith("https://")
+            or cover_image not in images
+        ):
+            raise PublicationError(
+                PublicationBlockerKind.PERMANENT_FAILURE,
+                "publication_request_invalid",
+                "Blog cover image must be one of the uploaded HTTPS image URLs",
+            )
 
     def _api_key(self) -> str:
         api_key = os.environ.get(self.api_key_env, "")
@@ -254,6 +279,8 @@ class LsforumContentApiAdapter:
             "status": "published",
             **target["mapped_fields"],
         }
+        if request.get("cover_image") is not None:
+            payload["image"] = request["cover_image"]
         try:
             response = self._send_http_request("POST", "/posts", payload=payload)
         except urllib.error.HTTPError as error:
@@ -595,6 +622,7 @@ class LsforumContentApiAdapter:
             and existing_body.get("title") == request["title"]
             and existing_body.get("content") == request["body_markdown"]
             and observed_author == expected_author
+            and existing_body.get("image") == request.get("cover_image")
             and existing_body.get("status") == "published"
             and _explicitly_undeleted(existing_body)
         )
@@ -612,7 +640,7 @@ class LsforumContentApiAdapter:
                 ),
                 (
                     "The fixed slug could not be matched to the exact title, body, "
-                    "author, and published state"
+                    "author, cover image, and published state"
                 ),
             )
         return {

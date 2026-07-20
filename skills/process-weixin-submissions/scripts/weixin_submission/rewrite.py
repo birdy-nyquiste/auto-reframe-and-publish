@@ -589,6 +589,16 @@ def _scripted_agent_generate(
         if outcome is ScriptedRewriteOutcome.VALIDATION_FAILURE
         else _build_scripted_placeholder(source)
     )
+    if outcome is not ScriptedRewriteOutcome.VALIDATION_FAILURE and permitted_images:
+        try:
+            image_markdown = "\n\n".join(
+                f"![Image {position}](source-image-{position:03d}{_image_extension(image.content)})"
+                for position, image in enumerate(permitted_images, start=1)
+            )
+        except RewriteRejected:
+            image_markdown = ""
+        if image_markdown:
+            content = f"{content.rstrip()}\n\n## 图片\n\n{image_markdown}\n"
     manifest = _build_agent_manifest(
         rewrite_input,
         source_images,

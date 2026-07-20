@@ -30,22 +30,75 @@
     "slug": {"type": "string"},
     "adapter": {"type": "string"},
     "presentation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["image_policy", "omitted_markdown_image_count", "source_body_sha256", "published_body_sha256"],
+          "properties": {
+            "image_policy": {"type": "string", "enum": ["preserve", "omit"]},
+            "omitted_markdown_image_count": {"type": "integer", "minimum": 0},
+            "source_body_sha256": {"type": "string"},
+            "published_body_sha256": {"type": "string"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["image_policy", "omitted_markdown_image_count", "source_body_sha256", "published_body_sha256", "cover_image_source", "cover_image_url", "resolved_images"],
+          "properties": {
+            "image_policy": {"type": "string", "const": "upload"},
+            "omitted_markdown_image_count": {"type": "integer", "const": 0},
+            "source_body_sha256": {"type": "string"},
+            "published_body_sha256": {"type": "string"},
+            "cover_image_source": {"type": ["string", "null"]},
+            "cover_image_url": {"type": ["string", "null"]},
+            "resolved_images": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source_name", "asset_sha256", "pathname", "content_type", "url", "is_cover"],
+                "properties": {
+                  "source_name": {"type": "string"},
+                  "asset_sha256": {"type": "string"},
+                  "pathname": {"type": "string"},
+                  "content_type": {"type": "string"},
+                  "url": {"type": "string"},
+                  "is_cover": {"type": "boolean"}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "image_plan": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "image_policy",
-        "omitted_markdown_image_count",
-        "source_body_sha256",
-        "published_body_sha256"
-      ],
+      "required": ["image_policy", "destination", "cover_image_source", "images"],
       "properties": {
-        "image_policy": {
-          "type": "string",
-          "enum": ["preserve", "omit"]
-        },
-        "omitted_markdown_image_count": {"type": "integer", "minimum": 0},
-        "source_body_sha256": {"type": "string"},
-        "published_body_sha256": {"type": "string"}
+        "image_policy": {"type": "string", "const": "upload"},
+        "destination": {"type": "string"},
+        "cover_image_source": {"type": ["string", "null"]},
+        "images": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_name", "asset_path", "asset_sha256", "pathname", "content_type", "is_cover"],
+            "properties": {
+              "source_name": {"type": "string"},
+              "asset_path": {"type": "string"},
+              "asset_sha256": {"type": "string"},
+              "pathname": {"type": "string"},
+              "content_type": {"type": "string"},
+              "is_cover": {"type": "boolean"}
+            }
+          }
+        }
       }
     },
     "milestone": {

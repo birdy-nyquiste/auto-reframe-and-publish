@@ -12,14 +12,17 @@ The fake adapter is for core validation. The LSForum adapter reads a non-secret 
   "api_key_env": "LSFORUM_INGEST_API_KEY",
   "targets": {
     "local-target-id": {
-      "authorName": "Public author name",
+      "author": {
+        "externalId": "author_stable_opaque_id",
+        "name": "Public author name"
+      },
       "category": "Community"
     }
   }
 }
 ```
 
-Each target requires either the deployed preferred `author` object (`name` plus optional `externalId`, `slug`, `title`, and `orgSlug`) or the legacy non-empty `authorName`. The nested object cannot be combined with legacy flat author fields, preventing ambiguous identity precedence. Allowed identity aliases include `authorExternalId`, `authorSlug`, and `orgSlug`; other optional mapping fields are `authorTitle`, `orgName`, `postType`, `category`, `featured`, and `tags`. The API key value comes only from the named environment variable; the request artifact contains no secret.
+New targets use the deployed preferred `author` object with required stable `externalId` and mutable `name`, plus optional `slug`, `title`, and `orgSlug`. Legacy target records may still use non-empty `authorName`. The nested object cannot be combined with legacy flat author fields, preventing ambiguous identity precedence. Allowed identity aliases include `authorExternalId`, `authorSlug`, and `orgSlug`; other optional mapping fields are `authorTitle`, `orgName`, `postType`, `category`, `featured`, and `tags`. The API key value comes only from the named environment variable; the request artifact contains no secret.
 
 The environment value must be unquoted printable ASCII without surrounding whitespace. Shell syntax may use normal ASCII quotes to assign the value, but those quote characters must not become part of the value. Invalid formatting is reported as `needs_configuration` before any Blog request.
 
@@ -35,6 +38,10 @@ PATCH requires a caller-supplied current version and sends `X-Post-Version: "<ve
 Every publication fixes its ID, slug, content task, rewrite commit hash, target mapping, adapter destination, and complete request before POST. Recovery verifies the request bytes against every attempt copy and marker hash, then verifies the task, rewrite commit, target, title, body, images, adapter, and destination before any external action. A successful response is retained raw, including the ETag response header, and normalized to the public slug, URL, content status, version, and ETag. Local images without stable public URLs produce `needs_configuration` before any request is sent.
 
 An operator may later explicitly authorize a text-only version of an existing validated rewrite with `publish --image-policy omit`. This does not alter raw evidence, structured source, or the committed rewrite. The independent publication aggregate records an immutable presentation policy, the number of removed Markdown image embeds, and hashes of both source and published bodies. The default `preserve` policy retains the local-image safety block.
+
+For a public version with images, use `publish --image-policy upload --cover-image source-image-NNN.ext --env-file .env`. The operation uploads only local image references present in the validated Markdown; captured but unused images are not uploaded. Before the first Blob side effect it commits a content-addressed plan containing source hashes, stable pathnames, destination identity, and the explicit cover selection. JPEG, PNG, WebP, and GIF are accepted up to 10 MB each, with at most 20 local references. Returned URLs must be HTTPS Public Vercel Blob URLs. The resolved presentation then fixes every Markdown replacement, ordered URL list, cover URL, and source/published body hash before the Blog POST. The cover is sent as Blog `image`; inline images remain Markdown URLs.
+
+The real uploader uses the pinned official Vercel Python SDK and reads `BLOB_READ_WRITE_TOKEN` only at runtime. Local `.env` loading does not invoke a shell, expand variables, or persist secrets. Tests use an isolated fake Blob boundary. Content-addressed pathnames use overwrite only for the same source hash, so retrying the same bytes does not create a different logical asset URL.
 
 Attempt evidence distinguishes `prepared` from `send_started`. A later explicit `auto` run may resume the same fixed publication when `prepared` exists and no send-start marker exists. Once a send-start marker exists, recovery is confirmation-only: it performs authenticated management GET, confirms an exact title/body/author match plus an explicitly represented undeleted `published` state, and never issues another POST. Absence of a recognized deletion-state field is ambiguous and does not count as undeleted. A missing, draft, deleted, ambiguous, or conflicting slug becomes `outcome_unknown`. Legacy requests without a fixed destination fail integrity validation without making either GET or POST requests.
 

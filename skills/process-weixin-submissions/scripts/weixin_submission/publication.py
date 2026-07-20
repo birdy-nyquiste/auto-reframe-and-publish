@@ -8,6 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from .blob_upload import BlobUploadError, ImageUploader, validate_image_bytes
 from .rewrite import RewriteArtifact, load_rewrite_artifact
 from .schema_validation import (
     SchemaValidationError,
@@ -174,6 +175,8 @@ def publish_rewrite(
     after_send_started: Callable[[], None] | None = None,
     after_response_received: Callable[[], None] | None = None,
     image_policy: str = "preserve",
+    image_uploader: ImageUploader | None = None,
+    cover_image: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     task_directory = repository / "tasks" / task_id
     task = load_record("task", task_directory / "task.json")
@@ -183,7 +186,20 @@ def publish_rewrite(
     if not isinstance(target_id, str):
         raise WorkflowError(f"Task {task_id} has no target ID")
     artifact = load_rewrite_artifact(task_directory, target_id, task["requirements"])
-    publication_body, presentation = _publication_body(artifact, image_policy)
+    image_plan: dict[str, Any] | None = None
+    if image_policy == "upload":
+        if image_uploader is None:
+            raise WorkflowError("Image upload policy requires a Blob uploader")
+        image_plan = _build_image_plan(
+            task_directory,
+            artifact,
+            cover_image=cover_image,
+            destination=image_uploader.destination_id,
+        )
+        publication_body = artifact.content
+        presentation = None
+    else:
+        publication_body, presentation = _publication_body(artifact, image_policy)
     commit_bytes = (task_directory / "rewrite" / "commit.json").read_bytes()
     publication_id = new_id("publication")
     publication_directory = repository / "publications" / publication_id
@@ -199,11 +215,14 @@ def publish_rewrite(
         "target_id": target_id,
         "slug": _slug(publication_id),
         "adapter": adapter.adapter_id,
-        "presentation": presentation,
         "milestone": "publication_created",
         "blocker": None,
         "external_result": None,
     }
+    if presentation is not None:
+        publication["presentation"] = presentation
+    if image_plan is not None:
+        publication["image_plan"] = image_plan
     _commit_publication(
         publication_directory, publication, run_id, "milestone_committed"
     )
@@ -218,8 +237,54 @@ def publish_rewrite(
         _commit_publication(publication_directory, publication, run_id, "blocked")
         return publication_id, _result(publication)
 
+    image_urls: list[str] = []
+    cover_image_url: str | None = None
+    if image_policy == "upload":
+        if image_uploader is None or image_plan is None:
+            raise AssertionError("Upload publication lacks its resolved dependencies")
+        try:
+            uploaded = _upload_planned_images(
+                task_directory, image_plan, image_uploader
+            )
+            publication_body, presentation = _publication_body(
+                artifact, "upload", uploaded
+            )
+        except BlobUploadError as error:
+            _block(
+                publication_directory,
+                publication,
+                run_id,
+                PublicationError(
+                    (
+                        PublicationBlockerKind.NEEDS_CONFIGURATION
+                        if error.needs_configuration
+                        else PublicationBlockerKind.PERMANENT_FAILURE
+                    ),
+                    error.code,
+                    str(error),
+                ),
+            )
+            return publication_id, _result(publication)
+        write_immutable_bytes(
+            publication_directory / "image-assets.json", _json_bytes(uploaded)
+        )
+        publication["presentation"] = presentation
+        publication["updated_at"] = utc_now()
+        _commit_publication(
+            publication_directory, publication, run_id, "images_resolved"
+        )
+        image_urls = [str(item["url"]) for item in uploaded]
+        cover_image_url = presentation["cover_image_url"]
+
     try:
-        request = _request(publication, artifact, publication_body, adapter)
+        request = _request(
+            publication,
+            artifact,
+            publication_body,
+            adapter,
+            image_urls=image_urls,
+            cover_image_url=cover_image_url,
+        )
     except PublicationError as error:
         _block(publication_directory, publication, run_id, error)
         return publication_id, _result(publication)
@@ -435,6 +500,9 @@ def _request(
     artifact: RewriteArtifact,
     publication_body: str,
     adapter: PublicationAdapter,
+    *,
+    image_urls: list[str] | None = None,
+    cover_image_url: str | None = None,
 ) -> dict[str, Any]:
     request = {
         "schema_version": SCHEMA_VERSION,
@@ -448,7 +516,8 @@ def _request(
         },
         "title": artifact.title,
         "body_markdown": publication_body,
-        "images": [],
+        "images": list(image_urls or []),
+        "cover_image": cover_image_url,
         "adapter": adapter.adapter_id,
         "destination": adapter.destination_id,
     }
@@ -456,18 +525,38 @@ def _request(
     return request
 
 
-_MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]\n]*\]\([^\)\n]+\)")
+_MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]\n]*\]\(([^\s\)\n]+)\)")
+_LOCAL_IMAGE_NAME_PATTERN = re.compile(
+    r"source-image-(?P<position>[0-9]{3})\.(?:jpg|jpeg|png|webp|gif)\Z",
+    re.IGNORECASE,
+)
 
 
 def _publication_body(
-    artifact: RewriteArtifact, image_policy: str
+    artifact: RewriteArtifact,
+    image_policy: str,
+    uploaded_images: list[dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    if image_policy not in ("preserve", "omit"):
+    if image_policy not in ("preserve", "omit", "upload"):
         raise WorkflowError(f"Unsupported publication image policy: {image_policy}")
     source_body = artifact.content
     if image_policy == "omit":
         published_body, omitted_count = _MARKDOWN_IMAGE_PATTERN.subn("", source_body)
         published_body = re.sub(r"\n{3,}", "\n\n", published_body).strip() + "\n"
+    elif image_policy == "upload":
+        if uploaded_images is None:
+            raise WorkflowError("Uploaded publication images are missing")
+        urls = {
+            str(item["source_name"]): str(item["url"])
+            for item in uploaded_images
+        }
+
+        def replace_image(match: re.Match[str]) -> str:
+            source = match.group(1)
+            return match.group(0).replace(f"({source})", f"({urls.get(source, source)})")
+
+        published_body = _MARKDOWN_IMAGE_PATTERN.sub(replace_image, source_body)
+        omitted_count = 0
     else:
         published_body = source_body
         omitted_count = 0
@@ -481,7 +570,142 @@ def _publication_body(
             published_body.encode("utf-8")
         ).hexdigest(),
     }
+    if image_policy == "upload":
+        if uploaded_images is None:
+            raise AssertionError("Upload presentation lacks images")
+        cover_source = next(
+            (
+                str(item["source_name"])
+                for item in uploaded_images
+                if item.get("is_cover") is True
+            ),
+            None,
+        )
+        cover_url = next(
+            (
+                str(item["url"])
+                for item in uploaded_images
+                if item.get("is_cover") is True
+            ),
+            None,
+        )
+        presentation.update(
+            {
+                "cover_image_source": cover_source,
+                "cover_image_url": cover_url,
+                "resolved_images": uploaded_images,
+            }
+        )
     return published_body, presentation
+
+
+def _build_image_plan(
+    task_directory: Path,
+    artifact: RewriteArtifact,
+    *,
+    cover_image: str | None,
+    destination: str,
+) -> dict[str, Any]:
+    referenced_names: list[str] = []
+    for match in _MARKDOWN_IMAGE_PATTERN.finditer(artifact.content):
+        source_name = match.group(1)
+        if source_name.startswith(("http://", "https://", "/assets/")):
+            continue
+        if _LOCAL_IMAGE_NAME_PATTERN.fullmatch(source_name) is None:
+            raise BlobUploadError(
+                "publication_image_reference_invalid",
+                f"Unsupported local Markdown image reference: {source_name}",
+                needs_configuration=False,
+            )
+        if source_name not in referenced_names:
+            referenced_names.append(source_name)
+    if len(referenced_names) > 20:
+        raise BlobUploadError(
+            "publication_image_count_exceeded",
+            "A publication may reference at most 20 local images",
+            needs_configuration=False,
+        )
+    if cover_image is not None and cover_image not in referenced_names:
+        raise BlobUploadError(
+            "publication_cover_invalid",
+            "The selected cover must be one of the referenced publication images",
+            needs_configuration=False,
+        )
+
+    images: list[dict[str, Any]] = []
+    for source_name in referenced_names:
+        name_match = _LOCAL_IMAGE_NAME_PATTERN.fullmatch(source_name)
+        if name_match is None:
+            raise AssertionError("Validated image name no longer matches")
+        position = int(name_match.group("position"))
+        if position < 1 or position > len(artifact.images):
+            raise BlobUploadError(
+                "publication_image_reference_missing",
+                f"Markdown image has no captured source asset: {source_name}",
+                needs_configuration=False,
+            )
+        asset_path = artifact.images[position - 1]
+        content = (task_directory / asset_path).read_bytes()
+        extension, content_type = validate_image_bytes(content)
+        digest = hashlib.sha256(content).hexdigest()
+        images.append(
+            {
+                "source_name": source_name,
+                "asset_path": asset_path,
+                "asset_sha256": digest,
+                "pathname": f"weixin-blog-publish/assets/{digest}{extension}",
+                "content_type": content_type,
+                "is_cover": source_name == cover_image,
+            }
+        )
+    return {
+        "image_policy": "upload",
+        "destination": destination,
+        "cover_image_source": cover_image,
+        "images": images,
+    }
+
+
+def _upload_planned_images(
+    task_directory: Path,
+    image_plan: dict[str, Any],
+    uploader: ImageUploader,
+) -> list[dict[str, Any]]:
+    if image_plan.get("destination") != uploader.destination_id:
+        raise WorkflowError("Image upload destination changed after planning")
+    planned = image_plan.get("images")
+    if not isinstance(planned, list):
+        raise WorkflowError("Publication image plan is invalid")
+    uploaded: list[dict[str, Any]] = []
+    for item in planned:
+        if not isinstance(item, dict):
+            raise WorkflowError("Publication image plan item is invalid")
+        source = task_directory / str(item["asset_path"])
+        content = source.read_bytes()
+        if hashlib.sha256(content).hexdigest() != item["asset_sha256"]:
+            raise WorkflowError("Publication source image changed after planning")
+        result = uploader.upload(
+            source,
+            pathname=str(item["pathname"]),
+            content_type=str(item["content_type"]),
+        )
+        if result.pathname != item["pathname"]:
+            raise BlobUploadError(
+                "vercel_blob_response_invalid",
+                "Blob upload returned an unexpected pathname",
+                needs_configuration=False,
+            )
+        uploaded.append(
+            {
+                "source_name": item["source_name"],
+                "asset_sha256": item["asset_sha256"],
+                "pathname": result.pathname,
+                "content_type": result.content_type,
+                "url": result.url,
+                "is_cover": item["is_cover"],
+            }
+        )
+    return uploaded
 
 
 def _commit_publication(
@@ -508,7 +732,19 @@ def _commit_publication(
         changed = [
             field for field in immutable_fields if previous[field] != publication[field]
         ]
-        if previous.get("presentation") != publication.get("presentation"):
+        if previous.get("image_plan") != publication.get("image_plan"):
+            changed.append("image_plan")
+        presentation_changed = previous.get("presentation") != publication.get(
+            "presentation"
+        )
+        presentation_resolved = (
+            previous.get("presentation") is None
+            and isinstance(publication.get("presentation"), dict)
+            and previous.get("milestone") == "publication_created"
+            and publication.get("milestone") == "publication_created"
+            and isinstance(previous.get("image_plan"), dict)
+        )
+        if presentation_changed and not presentation_resolved:
             changed.append("presentation")
         if changed:
             raise WorkflowError(f"Publication changed immutable fields: {changed}")
@@ -570,7 +806,19 @@ def validate_publication_history(directory: Path) -> dict[str, Any]:
             changed = [
                 field for field in immutable_fields if latest[field] != state[field]
             ]
-            if latest.get("presentation") != state.get("presentation"):
+            if latest.get("image_plan") != state.get("image_plan"):
+                changed.append("image_plan")
+            presentation_changed = latest.get("presentation") != state.get(
+                "presentation"
+            )
+            presentation_resolved = (
+                latest.get("presentation") is None
+                and isinstance(state.get("presentation"), dict)
+                and latest.get("milestone") == "publication_created"
+                and state.get("milestone") == "publication_created"
+                and isinstance(latest.get("image_plan"), dict)
+            )
+            if presentation_changed and not presentation_resolved:
                 changed.append("presentation")
             if changed:
                 raise WorkflowError(
@@ -684,23 +932,45 @@ def _validate_request_identity(
     presentation = publication.get("presentation")
     if presentation is None:
         expected_body = artifact.content
+        expected_images: list[str] = []
+        expected_cover: str | None = None
     else:
         if not isinstance(presentation, dict):
             raise WorkflowError("Publication presentation is invalid")
+        policy = str(presentation.get("image_policy"))
+        uploaded_images = (
+            presentation.get("resolved_images") if policy == "upload" else None
+        )
+        if uploaded_images is not None and not isinstance(uploaded_images, list):
+            raise WorkflowError("Publication resolved images are invalid")
         expected_body, expected_presentation = _publication_body(
-            artifact, str(presentation.get("image_policy"))
+            artifact,
+            policy,
+            uploaded_images,
         )
         if presentation != expected_presentation:
             raise WorkflowError(
                 "Publication presentation no longer matches its rewrite artifact"
             )
+        expected_images = (
+            [str(item["url"]) for item in uploaded_images]
+            if isinstance(uploaded_images, list)
+            else []
+        )
+        expected_cover_value = presentation.get("cover_image_url")
+        expected_cover = (
+            str(expected_cover_value)
+            if isinstance(expected_cover_value, str)
+            else None
+        )
     target = request.get("target")
     source_id = target.get("source_id") if isinstance(target, dict) else None
     if (
         source_id != artifact.target_id
         or request.get("title") != artifact.title
         or request.get("body_markdown") != expected_body
-        or request.get("images") != []
+        or request.get("images") != expected_images
+        or request.get("cover_image") != expected_cover
     ):
         raise WorkflowError("Publication request no longer matches its rewrite artifact")
 

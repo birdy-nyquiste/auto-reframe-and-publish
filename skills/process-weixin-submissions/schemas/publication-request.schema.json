@@ -22,6 +22,7 @@
     "title": {"type": "string"},
     "body_markdown": {"type": "string"},
     "images": {"type": "array", "items": {"type": "string"}},
+    "cover_image": {"type": ["string", "null"]},
     "adapter": {"type": "string"},
     "destination": {"type": "string"}
   }

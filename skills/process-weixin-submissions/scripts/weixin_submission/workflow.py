@@ -17,6 +17,7 @@ from .publication import (
     publish_rewrite,
     resume_ready_publications,
 )
+from .blob_upload import FakePublicBlobUploader, ImageUploader, VercelPublicBlobUploader
 from .lsforum_blog import LsforumPublicationAdapter
 from .retry_policy import retry_budget
 from .rewrite import (
@@ -806,7 +807,7 @@ def _process_task(
             return False
         _finish_attempt(task_directory, task_id, run_id, "validate_rewrite_artifact")
         return True
-    return task_record["milestone"] == "rewrite_artifact_ready"
+    return bool(task_record["milestone"] == "rewrite_artifact_ready")
 
 
 def _record_capture_failure(
@@ -964,6 +965,8 @@ def publish_existing_task(
     image_policy: str,
     fake_blog_directory: Path | None = None,
     blog_config: Path | None = None,
+    fake_blob_directory: Path | None = None,
+    cover_image: str | None = None,
 ) -> dict[str, object]:
     metadata = load_record("repository", repository / "repository.json")
     if metadata["pending_window"] is not None:
@@ -1009,12 +1012,23 @@ def publish_existing_task(
         if blog_config is None:
             raise WorkflowError("Publish has no Blog configuration")
         adapter = LsforumPublicationAdapter(blog_config)
+    image_uploader: ImageUploader | None = None
+    if image_policy == "upload":
+        image_uploader = (
+            FakePublicBlobUploader(fake_blob_directory)
+            if fake_blob_directory is not None
+            else VercelPublicBlobUploader()
+        )
+    elif fake_blob_directory is not None:
+        raise WorkflowError("Fake Blob storage requires image-policy upload")
     publication_id, publication_result = publish_rewrite(
         repository,
         task_id,
         run_id,
         adapter,
         image_policy=image_policy,
+        image_uploader=image_uploader,
+        cover_image=cover_image,
     )
     run_record["created_publication_ids"].append(publication_id)
     run_record["attempted_publication_ids"].append(publication_id)

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "skills/process-weixin-submissions/scripts/process_weixin_submissions.py"
 sys.path.insert(0, str(CLI.parent))
 
-from weixin_submission.publication import _publication_body  # noqa: E402
+from weixin_submission.publication import _build_image_plan, _publication_body  # noqa: E402
 from weixin_submission.rewrite import RewriteArtifact  # noqa: E402
 
 
@@ -362,6 +362,86 @@ class OptInPublicationTest(unittest.TestCase):
         )
         self.assertEqual(len(list((fake_blog / "posts").glob("*.json"))), 1)
 
+    def test_explicit_publish_uploads_referenced_images_and_records_cover(self) -> None:
+        self.append_submission("with-images")
+        chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
+        article = chat["messages"][-1]
+        article.pop("body")
+        article.pop("source_url")
+        article.pop("images")
+        article["scripted_capture"] = {
+            "clipboard_text": "Body with one captured image.",
+            "source_url": "https://example.com/with-images",
+            "article_end_observed": True,
+            "all_static_images_captured": True,
+            "media": [
+                {
+                    "kind": "image",
+                    "mime_type": "image/png",
+                    "capture_method": "original_bytes",
+                    "bytes_base64": base64.b64encode(
+                        b"\x89PNG\r\n\x1a\nfixture-image"
+                    ).decode("ascii"),
+                }
+            ],
+        }
+        self.chat.write_text(json.dumps(chat), encoding="utf-8")
+        content_result = self.run_without_publication()
+        task_id = content_result["task_ids"][0]
+        task_directory = self.repository / "tasks" / task_id
+        rewrite_commit_before = (task_directory / "rewrite" / "commit.json").read_bytes()
+        fake_blog = self.root / "fake-public-blog"
+        fake_blob = self.root / "fake-public-blob"
+
+        published = run_cli(
+            "publish",
+            "--repository",
+            self.repository,
+            "--task-id",
+            task_id,
+            "--image-policy",
+            "upload",
+            "--cover-image",
+            "source-image-001.png",
+            "--fake-blob-directory",
+            fake_blob,
+            "--fake-blog-directory",
+            fake_blog,
+        )
+
+        self.assertEqual(published.returncode, 0, published.stderr)
+        result = cast(dict[str, Any], json.loads(published.stdout))
+        publication_result = result["publication_result"]
+        self.assertEqual(publication_result["status"], "publication_confirmed")
+        publication_directory = (
+            self.repository / "publications" / publication_result["publication_id"]
+        )
+        publication = cast(
+            dict[str, Any],
+            json.loads((publication_directory / "publication.json").read_text("utf-8")),
+        )
+        request = cast(
+            dict[str, Any],
+            json.loads((publication_directory / "request.json").read_text("utf-8")),
+        )
+        self.assertEqual(publication["presentation"]["image_policy"], "upload")
+        self.assertEqual(len(request["images"]), 1)
+        image_url = request["images"][0]
+        self.assertTrue(image_url.startswith("https://fake-public-blob.example/"))
+        self.assertEqual(request["cover_image"], image_url)
+        self.assertIn(f"![Image 1]({image_url})", request["body_markdown"])
+        self.assertEqual(
+            publication["presentation"]["cover_image_source"],
+            "source-image-001.png",
+        )
+        self.assertEqual(publication["presentation"]["cover_image_url"], image_url)
+        self.assertEqual(len(publication["presentation"]["resolved_images"]), 1)
+        self.assertEqual(len(list((fake_blob / "objects").glob("*"))), 1)
+        self.assertEqual(
+            (task_directory / "rewrite" / "commit.json").read_bytes(),
+            rewrite_commit_before,
+        )
+
     def test_text_only_body_removes_markdown_images_deterministically(self) -> None:
         artifact = RewriteArtifact(
             title="Title",
@@ -382,6 +462,41 @@ class OptInPublicationTest(unittest.TestCase):
             presentation["source_body_sha256"],
             presentation["published_body_sha256"],
         )
+
+    def test_image_plan_excludes_captured_images_not_used_by_the_rewrite(self) -> None:
+        task_directory = self.root / "planned-task"
+        asset_directory = task_directory / "raw" / "capture" / "assets"
+        asset_directory.mkdir(parents=True)
+        image_paths: list[str] = []
+        for position in range(1, 4):
+            relative = f"raw/capture/assets/image-{position}"
+            (task_directory / relative).write_bytes(
+                b"\xff\xd8\xff" + bytes([position])
+            )
+            image_paths.append(relative)
+        artifact = RewriteArtifact(
+            title="Title",
+            content=(
+                "# Title\n\n"
+                "![First](source-image-001.jpg)\n\n"
+                "![Second](source-image-002.jpg)\n"
+            ),
+            target_id="author",
+            images=tuple(image_paths),
+        )
+
+        plan = _build_image_plan(
+            task_directory,
+            artifact,
+            cover_image="source-image-001.jpg",
+            destination="fake://blob",
+        )
+
+        self.assertEqual(
+            [item["source_name"] for item in plan["images"]],
+            ["source-image-001.jpg", "source-image-002.jpg"],
+        )
+        self.assertNotIn("image-3", json.dumps(plan))
 
     def test_missing_target_mapping_blocks_before_http(self) -> None:
         self.append_submission("unmapped")

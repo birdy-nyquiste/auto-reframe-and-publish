@@ -442,6 +442,35 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertEqual(post["payload"]["orgSlug"], "community")
         self.assertIsNotNone(recovered)
 
+    def test_http_adapter_sends_and_recovers_the_selected_cover_image(self) -> None:
+        cover_url = (
+            "https://example.public.blob.vercel-storage.com/assets/cover.jpg"
+        )
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            request = {
+                "slug": "post-with-cover",
+                "title": "Post with cover",
+                "body_markdown": f"Body\n\n![Cover]({cover_url})\n",
+                "images": [cover_url],
+                "cover_image": cover_url,
+                "target": {
+                    "mapped_fields": {
+                        "authorName": "Writer One",
+                        "category": "Community",
+                    }
+                },
+            }
+
+            adapter.publish(request)
+            recovered = adapter.confirm(request)
+
+        post = next(item for item in blog.requests if item["method"] == "POST")
+        self.assertEqual(post["payload"]["image"], cover_url)
+        self.assertIn(cover_url, post["payload"]["content"])
+        self.assertIsNotNone(recovered)
+
     def test_target_mapping_rejects_mixed_author_representations(self) -> None:
         self.config.write_text(
             json.dumps(

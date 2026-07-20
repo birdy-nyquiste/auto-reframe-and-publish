@@ -51,6 +51,25 @@ class PublicationBlockerKind(str, Enum):
     OUTCOME_UNKNOWN = "outcome_unknown"
 
 
+class PublicationImagePolicy(str, Enum):
+    PRESERVE = "preserve"
+    OMIT = "omit"
+    UPLOAD = "upload"
+
+    @property
+    def requires_uploader(self) -> bool:
+        return self is PublicationImagePolicy.UPLOAD
+
+    @classmethod
+    def parse(cls, value: str) -> "PublicationImagePolicy":
+        try:
+            return cls(value)
+        except ValueError as error:
+            raise WorkflowError(
+                f"Unsupported publication image policy: {value}"
+            ) from error
+
+
 class PublicationError(WorkflowError):
     def __init__(
         self,
@@ -178,6 +197,7 @@ def publish_rewrite(
     image_uploader: ImageUploader | None = None,
     cover_image: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
+    policy = PublicationImagePolicy.parse(image_policy)
     task_directory = repository / "tasks" / task_id
     task = load_record("task", task_directory / "task.json")
     if task["milestone"] != "rewrite_artifact_ready" or task["blocker"] is not None:
@@ -187,7 +207,7 @@ def publish_rewrite(
         raise WorkflowError(f"Task {task_id} has no target ID")
     artifact = load_rewrite_artifact(task_directory, target_id, task["requirements"])
     image_plan: dict[str, Any] | None = None
-    if image_policy == "upload":
+    if policy.requires_uploader:
         if image_uploader is None:
             raise WorkflowError("Image upload policy requires a Blob uploader")
         image_plan = _build_image_plan(
@@ -199,7 +219,7 @@ def publish_rewrite(
         publication_body = artifact.content
         presentation = None
     else:
-        publication_body, presentation = _publication_body(artifact, image_policy)
+        publication_body, presentation = _publication_body(artifact, policy)
     commit_bytes = (task_directory / "rewrite" / "commit.json").read_bytes()
     publication_id = new_id("publication")
     publication_directory = repository / "publications" / publication_id
@@ -215,6 +235,7 @@ def publish_rewrite(
         "target_id": target_id,
         "slug": _slug(publication_id),
         "adapter": adapter.adapter_id,
+        "destination": adapter.destination_id,
         "milestone": "publication_created",
         "blocker": None,
         "external_result": None,
@@ -227,7 +248,7 @@ def publish_rewrite(
         publication_directory, publication, run_id, "milestone_committed"
     )
 
-    if artifact.images and image_policy == "preserve":
+    if artifact.images and policy is PublicationImagePolicy.PRESERVE:
         publication["blocker"] = {
             "kind": "needs_configuration",
             "error_code": "public_image_urls_missing",
@@ -239,12 +260,17 @@ def publish_rewrite(
 
     image_urls: list[str] = []
     cover_image_url: str | None = None
-    if image_policy == "upload":
+    if policy.requires_uploader:
         if image_uploader is None or image_plan is None:
             raise AssertionError("Upload publication lacks its resolved dependencies")
         try:
             uploaded = _upload_planned_images(
-                task_directory, image_plan, image_uploader
+                task_directory,
+                publication_directory,
+                publication,
+                run_id,
+                image_plan,
+                image_uploader,
             )
             publication_body, presentation = _publication_body(
                 artifact, "upload", uploaded
@@ -276,6 +302,35 @@ def publish_rewrite(
         image_urls = [str(item["url"]) for item in uploaded]
         cover_image_url = presentation["cover_image_url"]
 
+    return publication_id, _prepare_and_execute_publication(
+        publication_directory,
+        publication,
+        artifact,
+        publication_body,
+        run_id,
+        adapter,
+        image_urls=image_urls,
+        cover_image_url=cover_image_url,
+        before_send=before_send,
+        after_send_started=after_send_started,
+        after_response_received=after_response_received,
+    )
+
+
+def _prepare_and_execute_publication(
+    publication_directory: Path,
+    publication: dict[str, Any],
+    artifact: RewriteArtifact,
+    publication_body: str,
+    run_id: str,
+    adapter: PublicationAdapter,
+    *,
+    image_urls: list[str],
+    cover_image_url: str | None,
+    before_send: Callable[[], None] | None = None,
+    after_send_started: Callable[[], None] | None = None,
+    after_response_received: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     try:
         request = _request(
             publication,
@@ -287,7 +342,7 @@ def publish_rewrite(
         )
     except PublicationError as error:
         _block(publication_directory, publication, run_id, error)
-        return publication_id, _result(publication)
+        return _result(publication)
     request_bytes = _json_bytes(request)
     write_immutable_bytes(publication_directory / "request.json", request_bytes)
     write_immutable_bytes(
@@ -310,10 +365,10 @@ def publish_rewrite(
         _record_publication_error(
             publication_directory, publication, run_id, error
         )
-        return publication_id, _result(publication)
+        return _result(publication)
     if before_send is not None:
         before_send()
-    return publication_id, _execute_post_attempt(
+    return _execute_post_attempt(
         publication_directory,
         publication,
         run_id,
@@ -322,6 +377,107 @@ def publish_rewrite(
         after_send_started=after_send_started,
         after_response_received=after_response_received,
     )
+
+
+def resume_planned_image_publication(
+    repository: Path,
+    task_id: str,
+    run_id: str,
+    adapter: PublicationAdapter,
+    image_uploader: ImageUploader,
+) -> tuple[str, dict[str, Any]] | None:
+    publications_directory = repository / "publications"
+    if not publications_directory.exists():
+        return None
+    for publication_directory in sorted(publications_directory.iterdir()):
+        if not publication_directory.is_dir():
+            continue
+        publication = validate_publication_history(publication_directory)
+        if (
+            publication["task_id"] != task_id
+            or publication["adapter"] != adapter.adapter_id
+            or publication["milestone"] != "publication_created"
+            or publication["blocker"] is not None
+            or not isinstance(publication.get("image_plan"), dict)
+        ):
+            continue
+        if publication.get("destination") != adapter.destination_id:
+            raise WorkflowError(
+                "Pending image publication belongs to another Blog destination"
+            )
+        image_plan = publication["image_plan"]
+        if image_plan.get("destination") != image_uploader.destination_id:
+            raise WorkflowError(
+                "Pending image publication belongs to another Blob destination"
+            )
+        task_directory = repository / "tasks" / task_id
+        task = load_record("task", task_directory / "task.json")
+        if (
+            task["milestone"] != "rewrite_artifact_ready"
+            or task["blocker"] is not None
+            or task["target_id"] != publication["target_id"]
+        ):
+            raise WorkflowError("Pending image publication no longer matches its task")
+        commit_bytes = (task_directory / "rewrite" / "commit.json").read_bytes()
+        if hashlib.sha256(commit_bytes).hexdigest() != publication["rewrite_commit_sha256"]:
+            raise WorkflowError("Pending image publication rewrite commit changed")
+        artifact = load_rewrite_artifact(
+            task_directory, str(task["target_id"]), task["requirements"]
+        )
+        try:
+            uploaded = _upload_planned_images(
+                task_directory,
+                publication_directory,
+                publication,
+                run_id,
+                image_plan,
+                image_uploader,
+            )
+            publication_body, expected_presentation = _publication_body(
+                artifact, "upload", uploaded
+            )
+        except BlobUploadError as error:
+            _block(
+                publication_directory,
+                publication,
+                run_id,
+                PublicationError(
+                    (
+                        PublicationBlockerKind.NEEDS_CONFIGURATION
+                        if error.needs_configuration
+                        else PublicationBlockerKind.PERMANENT_FAILURE
+                    ),
+                    error.code,
+                    str(error),
+                ),
+            )
+            return str(publication["publication_id"]), _result(publication)
+        presentation = publication.get("presentation")
+        if presentation is None:
+            write_immutable_bytes(
+                publication_directory / "image-assets.json", _json_bytes(uploaded)
+            )
+            publication["presentation"] = expected_presentation
+            publication["updated_at"] = utc_now()
+            _commit_publication(
+                publication_directory, publication, run_id, "images_resolved"
+            )
+        elif presentation != expected_presentation:
+            raise WorkflowError(
+                "Pending image publication presentation failed integrity validation"
+            )
+        result = _prepare_and_execute_publication(
+            publication_directory,
+            publication,
+            artifact,
+            publication_body,
+            run_id,
+            adapter,
+            image_urls=[str(item["url"]) for item in uploaded],
+            cover_image_url=expected_presentation["cover_image_url"],
+        )
+        return str(publication["publication_id"]), result
+    return None
 
 
 def resume_ready_publications(
@@ -534,16 +690,19 @@ _LOCAL_IMAGE_NAME_PATTERN = re.compile(
 
 def _publication_body(
     artifact: RewriteArtifact,
-    image_policy: str,
+    image_policy: str | PublicationImagePolicy,
     uploaded_images: list[dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    if image_policy not in ("preserve", "omit", "upload"):
-        raise WorkflowError(f"Unsupported publication image policy: {image_policy}")
+    policy = (
+        image_policy
+        if isinstance(image_policy, PublicationImagePolicy)
+        else PublicationImagePolicy.parse(image_policy)
+    )
     source_body = artifact.content
-    if image_policy == "omit":
+    if policy is PublicationImagePolicy.OMIT:
         published_body, omitted_count = _MARKDOWN_IMAGE_PATTERN.subn("", source_body)
         published_body = re.sub(r"\n{3,}", "\n\n", published_body).strip() + "\n"
-    elif image_policy == "upload":
+    elif policy.requires_uploader:
         if uploaded_images is None:
             raise WorkflowError("Uploaded publication images are missing")
         urls = {
@@ -562,15 +721,15 @@ def _publication_body(
         omitted_count = 0
     if not published_body.strip():
         raise WorkflowError("Publication body is empty after applying image policy")
-    presentation = {
-        "image_policy": image_policy,
+    presentation: dict[str, Any] = {
+        "image_policy": policy.value,
         "omitted_markdown_image_count": omitted_count,
         "source_body_sha256": hashlib.sha256(source_body.encode("utf-8")).hexdigest(),
         "published_body_sha256": hashlib.sha256(
             published_body.encode("utf-8")
         ).hexdigest(),
     }
-    if image_policy == "upload":
+    if policy.requires_uploader:
         if uploaded_images is None:
             raise AssertionError("Upload presentation lacks images")
         cover_source = next(
@@ -668,6 +827,9 @@ def _build_image_plan(
 
 def _upload_planned_images(
     task_directory: Path,
+    publication_directory: Path,
+    publication: dict[str, Any],
+    run_id: str,
     image_plan: dict[str, Any],
     uploader: ImageUploader,
 ) -> list[dict[str, Any]]:
@@ -684,32 +846,139 @@ def _upload_planned_images(
         content = source.read_bytes()
         if hashlib.sha256(content).hexdigest() != item["asset_sha256"]:
             raise WorkflowError("Publication source image changed after planning")
-        result = uploader.upload(
-            source,
-            pathname=str(item["pathname"]),
-            content_type=str(item["content_type"]),
+        record_path = (
+            publication_directory
+            / "image-assets"
+            / f"{item['source_name']}.json"
         )
-        if result.pathname != item["pathname"]:
-            raise BlobUploadError(
-                "vercel_blob_response_invalid",
-                "Blob upload returned an unexpected pathname",
-                needs_configuration=False,
+        if record_path.exists():
+            record = read_json(record_path)
+            _validate_uploaded_image_record(item, record, uploader)
+            record_bytes = record_path.read_bytes()
+            record_hash = hashlib.sha256(record_bytes).hexdigest()
+            if not _image_record_anchor_exists(
+                publication_directory,
+                str(item["source_name"]),
+                record_hash,
+            ):
+                recovered = uploader.upload(
+                    source,
+                    pathname=str(item["pathname"]),
+                    content_type=str(item["content_type"]),
+                )
+                recovered_record = _uploaded_image_record(item, recovered, uploader)
+                if recovered_record != record:
+                    raise WorkflowError(
+                        "Unanchored image upload record could not be recovered exactly"
+                    )
+                _commit_publication(
+                    publication_directory,
+                    publication,
+                    run_id,
+                    "image_uploaded",
+                    details={
+                        "source_name": item["source_name"],
+                        "record_sha256": record_hash,
+                    },
+                )
+        else:
+            result = uploader.upload(
+                source,
+                pathname=str(item["pathname"]),
+                content_type=str(item["content_type"]),
             )
-        uploaded.append(
-            {
-                "source_name": item["source_name"],
-                "asset_sha256": item["asset_sha256"],
-                "pathname": result.pathname,
-                "content_type": result.content_type,
-                "url": result.url,
-                "is_cover": item["is_cover"],
-            }
-        )
+            record = _uploaded_image_record(item, result, uploader)
+            record_bytes = _json_bytes(record)
+            write_immutable_bytes(record_path, record_bytes)
+            _commit_publication(
+                publication_directory,
+                publication,
+                run_id,
+                "image_uploaded",
+                details={
+                    "source_name": item["source_name"],
+                    "record_sha256": hashlib.sha256(record_bytes).hexdigest(),
+                },
+            )
+        uploaded.append(record)
     return uploaded
 
 
+def _validate_uploaded_image_record(
+    planned: dict[str, Any], record: object, uploader: ImageUploader
+) -> None:
+    if not isinstance(record, dict):
+        raise WorkflowError("Durable uploaded image record must be an object")
+    expected = {
+        "source_name": planned["source_name"],
+        "asset_sha256": planned["asset_sha256"],
+        "pathname": planned["pathname"],
+        "is_cover": planned["is_cover"],
+    }
+    if any(record.get(field) != value for field, value in expected.items()):
+        raise WorkflowError("Durable uploaded image record no longer matches its plan")
+    if (
+        record.get("content_type") != planned["content_type"]
+        or not isinstance(record.get("url"), str)
+        or not uploader.accepts_public_url(str(record["url"]))
+    ):
+        raise WorkflowError("Durable uploaded image record is invalid")
+
+
+def _uploaded_image_record(
+    planned: dict[str, Any], result: object, uploader: ImageUploader
+) -> dict[str, Any]:
+    pathname = getattr(result, "pathname", None)
+    content_type = getattr(result, "content_type", None)
+    url = getattr(result, "url", None)
+    if (
+        pathname != planned["pathname"]
+        or content_type != planned["content_type"]
+        or not isinstance(url, str)
+        or not uploader.accepts_public_url(url)
+    ):
+        raise BlobUploadError(
+            "vercel_blob_response_invalid",
+            "Blob upload returned unexpected image metadata",
+            needs_configuration=False,
+        )
+    return {
+        "source_name": planned["source_name"],
+        "asset_sha256": planned["asset_sha256"],
+        "pathname": pathname,
+        "content_type": content_type,
+        "url": url,
+        "is_cover": planned["is_cover"],
+    }
+
+
+def _image_record_anchor_exists(
+    publication_directory: Path, source_name: str, record_hash: str
+) -> bool:
+    events_directory = publication_directory / "events"
+    if not events_directory.exists():
+        return False
+    for event_path in events_directory.glob("*.json"):
+        event = read_json(event_path)
+        validate_record("publication-event", event)
+        details = event.get("details")
+        if (
+            event.get("type") == "image_uploaded"
+            and isinstance(details, dict)
+            and details.get("source_name") == source_name
+            and details.get("record_sha256") == record_hash
+        ):
+            return True
+    return False
+
+
 def _commit_publication(
-    directory: Path, publication: dict[str, Any], run_id: str, event_type: str
+    directory: Path,
+    publication: dict[str, Any],
+    run_id: str,
+    event_type: str,
+    *,
+    details: dict[str, Any] | None = None,
 ) -> None:
     validate_record("publication", publication)
     snapshot_path = directory / "publication.json"
@@ -719,33 +988,7 @@ def _commit_publication(
             raise WorkflowError("First publication state must be publication_created")
     else:
         validate_record("publication", previous)
-        immutable_fields = (
-            "publication_id",
-            "created_in_run",
-            "created_at",
-            "task_id",
-            "rewrite_commit_sha256",
-            "target_id",
-            "slug",
-            "adapter",
-        )
-        changed = [
-            field for field in immutable_fields if previous[field] != publication[field]
-        ]
-        if previous.get("image_plan") != publication.get("image_plan"):
-            changed.append("image_plan")
-        presentation_changed = previous.get("presentation") != publication.get(
-            "presentation"
-        )
-        presentation_resolved = (
-            previous.get("presentation") is None
-            and isinstance(publication.get("presentation"), dict)
-            and previous.get("milestone") == "publication_created"
-            and publication.get("milestone") == "publication_created"
-            and isinstance(previous.get("image_plan"), dict)
-        )
-        if presentation_changed and not presentation_resolved:
-            changed.append("presentation")
+        changed = _publication_immutable_changes(previous, publication)
         if changed:
             raise WorkflowError(f"Publication changed immutable fields: {changed}")
         previous_milestone = str(previous["milestone"])
@@ -767,7 +1010,7 @@ def _commit_publication(
         "occurred_at": utc_now(),
         "type": event_type,
         "milestone": publication["milestone"],
-        "details": {},
+        "details": details or {},
         "state_after": deepcopy(publication),
     }
     validate_record("publication-event", event)
@@ -791,35 +1034,22 @@ def validate_publication_history(directory: Path) -> dict[str, Any]:
             raise WorkflowError(
                 f"Publication event {path} belongs to another publication"
             )
+        if event["type"] == "image_uploaded":
+            details = event["details"]
+            source_name = details.get("source_name")
+            record_sha256 = details.get("record_sha256")
+            if not isinstance(source_name, str) or not isinstance(record_sha256, str):
+                raise WorkflowError("Image upload event lacks its record identity")
+            record_path = directory / "image-assets" / f"{source_name}.json"
+            if (
+                not record_path.exists()
+                or hashlib.sha256(record_path.read_bytes()).hexdigest()
+                != record_sha256
+            ):
+                raise WorkflowError("Image upload event record hash does not match")
         state = event["state_after"]
         if latest is not None:
-            immutable_fields = (
-                "publication_id",
-                "created_in_run",
-                "created_at",
-                "task_id",
-                "rewrite_commit_sha256",
-                "target_id",
-                "slug",
-                "adapter",
-            )
-            changed = [
-                field for field in immutable_fields if latest[field] != state[field]
-            ]
-            if latest.get("image_plan") != state.get("image_plan"):
-                changed.append("image_plan")
-            presentation_changed = latest.get("presentation") != state.get(
-                "presentation"
-            )
-            presentation_resolved = (
-                latest.get("presentation") is None
-                and isinstance(state.get("presentation"), dict)
-                and latest.get("milestone") == "publication_created"
-                and state.get("milestone") == "publication_created"
-                and isinstance(latest.get("image_plan"), dict)
-            )
-            if presentation_changed and not presentation_resolved:
-                changed.append("presentation")
+            changed = _publication_immutable_changes(latest, state)
             if changed:
                 raise WorkflowError(
                     f"Publication event changed immutable fields: {changed}"
@@ -838,6 +1068,41 @@ def validate_publication_history(directory: Path) -> dict[str, Any]:
             f"Publication snapshot does not match its event history: {directory}"
         )
     return publication
+
+
+def _publication_immutable_changes(
+    previous: dict[str, Any], current: dict[str, Any]
+) -> list[str]:
+    immutable_fields = (
+        "publication_id",
+        "created_in_run",
+        "created_at",
+        "task_id",
+        "rewrite_commit_sha256",
+        "target_id",
+        "slug",
+        "adapter",
+    )
+    changed = [
+        field for field in immutable_fields if previous[field] != current[field]
+    ]
+    if previous.get("destination") != current.get("destination"):
+        changed.append("destination")
+    if previous.get("image_plan") != current.get("image_plan"):
+        changed.append("image_plan")
+    presentation_changed = previous.get("presentation") != current.get(
+        "presentation"
+    )
+    presentation_resolved = (
+        previous.get("presentation") is None
+        and isinstance(current.get("presentation"), dict)
+        and previous.get("milestone") == "publication_created"
+        and current.get("milestone") == "publication_created"
+        and isinstance(previous.get("image_plan"), dict)
+    )
+    if presentation_changed and not presentation_resolved:
+        changed.append("presentation")
+    return changed
 
 
 def _result(publication: dict[str, Any]) -> dict[str, Any]:

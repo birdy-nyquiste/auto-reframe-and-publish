@@ -29,6 +29,8 @@ class ImageUploader(Protocol):
         self, source: Path, *, pathname: str, content_type: str
     ) -> UploadedImage: ...
 
+    def accepts_public_url(self, url: str) -> bool: ...
+
 
 class BlobUploadError(WorkflowError):
     def __init__(self, code: str, message: str, *, needs_configuration: bool) -> None:
@@ -72,16 +74,24 @@ class FakePublicBlobUploader:
         )
         return UploadedImage(url=url, pathname=pathname, content_type=content_type)
 
+    def accepts_public_url(self, url: str) -> bool:
+        return url.startswith("https://fake-public-blob.example/")
+
 
 class VercelPublicBlobUploader:
     """Upload local files to a Public Vercel Blob store via the official SDK."""
 
-    def __init__(self, token_env: str = "BLOB_READ_WRITE_TOKEN") -> None:
+    def __init__(
+        self,
+        token_env: str = "BLOB_READ_WRITE_TOKEN",
+        store_id_env: str = "BLOB_STORE_ID",
+    ) -> None:
         self.token_env = token_env
+        self.store_id_env = store_id_env
 
     @property
     def destination_id(self) -> str:
-        return "vercel-blob:public"
+        return f"vercel-blob:public:{_runtime_store_id(self.store_id_env)}"
 
     def upload(
         self, source: Path, *, pathname: str, content_type: str
@@ -133,6 +143,12 @@ class VercelPublicBlobUploader:
             ),
         )
 
+    def accepts_public_url(self, url: str) -> bool:
+        return (
+            url.startswith("https://")
+            and ".public.blob.vercel-storage.com/" in url
+        )
+
 
 def image_format(content: bytes) -> tuple[str, str]:
     if content.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -178,6 +194,17 @@ def _runtime_secret(name: str) -> str:
         raise BlobUploadError(
             "blob_token_invalid_format",
             f"Runtime secret {name} must be unquoted printable ASCII",
+            needs_configuration=True,
+        )
+    return value
+
+
+def _runtime_store_id(name: str) -> str:
+    value = os.environ.get(name, "")
+    if not value.startswith("store_") or not value.removeprefix("store_").isalnum():
+        raise BlobUploadError(
+            "blob_store_id_invalid",
+            f"Runtime value {name} must use the store_<id> format",
             needs_configuration=True,
         )
     return value

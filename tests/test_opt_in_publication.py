@@ -14,8 +14,43 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "skills/process-weixin-submissions/scripts/process_weixin_submissions.py"
 sys.path.insert(0, str(CLI.parent))
 
-from weixin_submission.publication import _build_image_plan, _publication_body  # noqa: E402
+from weixin_submission.blob_upload import (  # noqa: E402
+    FakePublicBlobUploader,
+    UploadedImage,
+)
+from weixin_submission.publication import (  # noqa: E402
+    FakePublicationAdapter,
+    _build_image_plan,
+    _publication_body,
+    _validate_uploaded_image_record,
+    publish_rewrite,
+    resume_planned_image_publication,
+)
 from weixin_submission.rewrite import RewriteArtifact  # noqa: E402
+from weixin_submission.storage import WorkflowError  # noqa: E402
+
+
+class InterruptAfterOneUpload:
+    def __init__(self, inner: FakePublicBlobUploader) -> None:
+        self.inner = inner
+        self.calls = 0
+
+    @property
+    def destination_id(self) -> str:
+        return self.inner.destination_id
+
+    def upload(
+        self, source: Path, *, pathname: str, content_type: str
+    ) -> UploadedImage:
+        self.calls += 1
+        if self.calls == 2:
+            raise KeyboardInterrupt("simulated image upload interruption")
+        return self.inner.upload(
+            source, pathname=pathname, content_type=content_type
+        )
+
+    def accepts_public_url(self, url: str) -> bool:
+        return self.inner.accepts_public_url(url)
 
 
 def run_cli(*arguments: object) -> subprocess.CompletedProcess[str]:
@@ -386,7 +421,40 @@ class OptInPublicationTest(unittest.TestCase):
             ],
         }
         self.chat.write_text(json.dumps(chat), encoding="utf-8")
-        content_result = self.run_without_publication()
+        fake_codex = self.root / "fake-codex-with-image"
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+output_path.write_text(
+    json.dumps(
+        {
+            "title": "Article with-images",
+            "markdown": "# Article with-images\\n\\nBody.\\n\\n![Image 1](source-image-001.png)\\n",
+        }
+    ),
+    encoding="utf-8",
+)
+""",
+            encoding="utf-8",
+        )
+        fake_codex.chmod(0o755)
+        generated = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--scripted-chat",
+            self.chat,
+            "--rewrite-generator",
+            "codex",
+            "--codex-command",
+            fake_codex,
+        )
+        self.assertEqual(generated.returncode, 0, generated.stderr)
+        content_result = cast(dict[str, Any], json.loads(generated.stdout))
         task_id = content_result["task_ids"][0]
         task_directory = self.repository / "tasks" / task_id
         rewrite_commit_before = (task_directory / "rewrite" / "commit.json").read_bytes()
@@ -497,6 +565,153 @@ class OptInPublicationTest(unittest.TestCase):
             ["source-image-001.jpg", "source-image-002.jpg"],
         )
         self.assertNotIn("image-3", json.dumps(plan))
+
+    def test_interrupted_image_upload_resumes_the_same_publication(self) -> None:
+        self.append_submission("resume-images")
+        chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
+        article = chat["messages"][-1]
+        article.pop("body")
+        article.pop("source_url")
+        article.pop("images")
+        article["scripted_capture"] = {
+            "clipboard_text": "Body with two captured images.",
+            "source_url": "https://example.com/resume-images",
+            "article_end_observed": True,
+            "all_static_images_captured": True,
+            "media": [
+                {
+                    "kind": "image",
+                    "mime_type": "image/png",
+                    "capture_method": "original_bytes",
+                    "bytes_base64": base64.b64encode(
+                        b"\x89PNG\r\n\x1a\nfirst"
+                    ).decode("ascii"),
+                },
+                {
+                    "kind": "image",
+                    "mime_type": "image/png",
+                    "capture_method": "original_bytes",
+                    "bytes_base64": base64.b64encode(
+                        b"\x89PNG\r\n\x1a\nsecond"
+                    ).decode("ascii"),
+                },
+            ],
+        }
+        self.chat.write_text(json.dumps(chat), encoding="utf-8")
+        fake_codex = self.root / "fake-codex-two-images"
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+output_path.write_text(
+    json.dumps(
+        {
+            "title": "Article resume-images",
+            "markdown": "# Article resume-images\\n\\n![One](source-image-001.png)\\n\\n![Two](source-image-002.png)\\n",
+        }
+    ),
+    encoding="utf-8",
+)
+""",
+            encoding="utf-8",
+        )
+        fake_codex.chmod(0o755)
+        generated = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--scripted-chat",
+            self.chat,
+            "--rewrite-generator",
+            "codex",
+            "--codex-command",
+            fake_codex,
+        )
+        self.assertEqual(generated.returncode, 0, generated.stderr)
+        task_id = cast(dict[str, Any], json.loads(generated.stdout))["task_ids"][0]
+        fake_blog = FakePublicationAdapter(self.root / "fake-resume-blog")
+        blob = FakePublicBlobUploader(self.root / "fake-resume-blob")
+        interrupted_blob = InterruptAfterOneUpload(blob)
+
+        with self.assertRaises(KeyboardInterrupt):
+            publish_rewrite(
+                self.repository,
+                task_id,
+                "run_interrupted_images",
+                fake_blog,
+                image_policy="upload",
+                image_uploader=interrupted_blob,
+                cover_image="source-image-001.png",
+            )
+
+        publication_directories = list((self.repository / "publications").iterdir())
+        self.assertEqual(len(publication_directories), 1)
+        publication_id = publication_directories[0].name
+        self.assertEqual(
+            len(list((publication_directories[0] / "image-assets").glob("*.json"))),
+            1,
+        )
+        image_events = [
+            json.loads(path.read_text("utf-8"))
+            for path in (publication_directories[0] / "events").glob("*.json")
+        ]
+        self.assertEqual(
+            [event["type"] for event in image_events].count("image_uploaded"), 1
+        )
+        with self.assertRaises(WorkflowError):
+            resume_planned_image_publication(
+                self.repository,
+                task_id,
+                "run_wrong_blog_destination",
+                FakePublicationAdapter(self.root / "another-blog"),
+                interrupted_blob,
+            )
+
+        resumed = resume_planned_image_publication(
+            self.repository,
+            task_id,
+            "run_resumed_images",
+            fake_blog,
+            interrupted_blob,
+        )
+
+        self.assertIsNotNone(resumed)
+        assert resumed is not None
+        self.assertEqual(resumed[0], publication_id)
+        self.assertEqual(resumed[1]["status"], "publication_confirmed")
+        self.assertEqual(interrupted_blob.calls, 3)
+        self.assertEqual(
+            len(list((publication_directories[0] / "image-assets").glob("*.json"))),
+            2,
+        )
+        self.assertEqual(
+            len(list((self.root / "fake-resume-blob" / "objects").glob("*"))),
+            2,
+        )
+
+    def test_durable_image_record_requires_exact_type_and_blob_destination(self) -> None:
+        planned = {
+            "source_name": "source-image-001.jpg",
+            "asset_sha256": "abc",
+            "pathname": "weixin-blog-publish/assets/abc.jpg",
+            "content_type": "image/jpeg",
+            "is_cover": True,
+        }
+        record = {
+            **planned,
+            "content_type": "image/png",
+            "url": "https://attacker.example/image.jpg",
+        }
+
+        with self.assertRaises(WorkflowError):
+            _validate_uploaded_image_record(
+                planned,
+                record,
+                FakePublicBlobUploader(self.root / "fake-validation-blob"),
+            )
 
     def test_missing_target_mapping_blocks_before_http(self) -> None:
         self.append_submission("unmapped")

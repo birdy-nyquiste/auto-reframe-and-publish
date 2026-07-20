@@ -14,7 +14,9 @@ from .protocol import IntakeCandidate, parse_input_window
 from .publication import (
     FakePublicationAdapter,
     PublicationAdapter,
+    PublicationImagePolicy,
     publish_rewrite,
+    resume_planned_image_publication,
     resume_ready_publications,
 )
 from .blob_upload import FakePublicBlobUploader, ImageUploader, VercelPublicBlobUploader
@@ -968,6 +970,7 @@ def publish_existing_task(
     fake_blob_directory: Path | None = None,
     cover_image: str | None = None,
 ) -> dict[str, object]:
+    policy = PublicationImagePolicy.parse(image_policy)
     metadata = load_record("repository", repository / "repository.json")
     if metadata["pending_window"] is not None:
         raise WorkflowError(
@@ -993,7 +996,7 @@ def publish_existing_task(
         "started_at": started_at,
         "completed_at": None,
         "status": "processing",
-        "input_window": {"task_id": task_id, "image_policy": image_policy},
+        "input_window": {"task_id": task_id, "image_policy": policy.value},
         "created_task_ids": [],
         "attempted_task_ids": [],
         "publication_selection": "auto",
@@ -1013,7 +1016,7 @@ def publish_existing_task(
             raise WorkflowError("Publish has no Blog configuration")
         adapter = LsforumPublicationAdapter(blog_config)
     image_uploader: ImageUploader | None = None
-    if image_policy == "upload":
+    if policy.requires_uploader:
         image_uploader = (
             FakePublicBlobUploader(fake_blob_directory)
             if fake_blob_directory is not None
@@ -1021,16 +1024,26 @@ def publish_existing_task(
         )
     elif fake_blob_directory is not None:
         raise WorkflowError("Fake Blob storage requires image-policy upload")
-    publication_id, publication_result = publish_rewrite(
-        repository,
-        task_id,
-        run_id,
-        adapter,
-        image_policy=image_policy,
-        image_uploader=image_uploader,
-        cover_image=cover_image,
+    resumed = (
+        resume_planned_image_publication(
+            repository, task_id, run_id, adapter, image_uploader
+        )
+        if image_uploader is not None
+        else None
     )
-    run_record["created_publication_ids"].append(publication_id)
+    if resumed is None:
+        publication_id, publication_result = publish_rewrite(
+            repository,
+            task_id,
+            run_id,
+            adapter,
+            image_policy=policy.value,
+            image_uploader=image_uploader,
+            cover_image=cover_image,
+        )
+        run_record["created_publication_ids"].append(publication_id)
+    else:
+        publication_id, publication_result = resumed
     run_record["attempted_publication_ids"].append(publication_id)
     run_record["completed_at"] = utc_now()
     run_record["status"] = "completed"
@@ -1045,7 +1058,7 @@ def publish_existing_task(
                 "- Status: completed",
                 "- Operation: publish",
                 f"- Task: {task_id}",
-                f"- Image policy: {image_policy}",
+                f"- Image policy: {policy.value}",
                 f"- Publication: {publication_id}",
                 f"- Publication status: {publication_result['status']}",
                 "",

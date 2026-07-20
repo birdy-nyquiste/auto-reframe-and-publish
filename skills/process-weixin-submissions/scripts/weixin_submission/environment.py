@@ -42,4 +42,4 @@ def load_env_file(path: Path) -> None:
             raise WorkflowError(
                 f"Environment file line {line_number} has an invalid value"
             )
-        os.environ.setdefault(name, value)
+        os.environ[name] = value

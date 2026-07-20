@@ -17,7 +17,8 @@ from weixin_submission.environment import load_env_file  # noqa: E402
 class EnvironmentFileTest(unittest.TestCase):
     def test_quotes_are_removed_without_shell_or_variable_expansion(self) -> None:
         name = "WEIXIN_BLOG_ENV_TEST"
-        previous = os.environ.pop(name, None)
+        previous = os.environ.get(name)
+        os.environ[name] = "stale-ambient-value"
         try:
             with tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / ".env"

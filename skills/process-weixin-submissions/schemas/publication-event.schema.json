@@ -11,7 +11,7 @@
     "publication_id": {"type": "string"},
     "run_id": {"type": "string"},
     "occurred_at": {"type": "string"},
-    "type": {"type": "string", "enum": ["milestone_committed", "images_resolved", "blocked"]},
+    "type": {"type": "string", "enum": ["milestone_committed", "image_uploaded", "images_resolved", "blocked"]},
     "milestone": {"type": "string"},
     "details": {"type": "object", "additionalProperties": true},
     "state_after": {"type": "object"}

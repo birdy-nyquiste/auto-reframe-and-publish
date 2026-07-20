@@ -29,6 +29,7 @@
     "target_id": {"type": "string"},
     "slug": {"type": "string"},
     "adapter": {"type": "string"},
+    "destination": {"type": "string"},
     "presentation": {
       "oneOf": [
         {

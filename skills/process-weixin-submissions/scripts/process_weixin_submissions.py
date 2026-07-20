@@ -9,6 +9,7 @@ from typing import Sequence
 
 from weixin_submission.schema_validation import SchemaValidationError, milestones
 from weixin_submission.environment import load_env_file
+from weixin_submission.publication import PublicationImagePolicy
 from weixin_submission.rewrite import CodexCliGenerator, ScriptedRewriteOutcome
 from weixin_submission.storage import WorkflowError, repository_status
 from weixin_submission.writer_lock import acquire_writer_lock
@@ -105,7 +106,7 @@ def create_parser() -> argparse.ArgumentParser:
     publish.add_argument("--task-id", required=True)
     publish.add_argument(
         "--image-policy",
-        choices=("preserve", "omit", "upload"),
+        choices=tuple(policy.value for policy in PublicationImagePolicy),
         default="preserve",
         help=(
             "Preserve local-image requirements, explicitly derive an audited "
@@ -191,6 +192,14 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
         with acquire_writer_lock(arguments.repository, "retry"):
             return 0, enable_retry(arguments.repository, arguments.task_id)
     if arguments.operation == "publish":
+        if (
+            arguments.image_policy == PublicationImagePolicy.UPLOAD.value
+            and arguments.fake_blob_directory is None
+            and arguments.env_file is None
+        ):
+            raise WorkflowError(
+                "Real image publication requires an explicit --env-file"
+            )
         if arguments.env_file is not None:
             load_env_file(arguments.env_file)
         with acquire_writer_lock(arguments.repository, "publish"):

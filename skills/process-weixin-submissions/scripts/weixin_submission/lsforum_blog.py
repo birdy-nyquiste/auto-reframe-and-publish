@@ -16,7 +16,6 @@ from .storage import WorkflowError, read_json
 
 ALLOWED_TARGET_FIELDS = {
     "author",
-    "authorExternalId",
     "authorSlug",
     "authorName",
     "authorTitle",
@@ -28,9 +27,8 @@ ALLOWED_TARGET_FIELDS = {
     "tags",
 }
 
-ALLOWED_AUTHOR_FIELDS = {"externalId", "slug", "name", "title", "orgSlug"}
+ALLOWED_AUTHOR_FIELDS = {"slug", "name", "title", "orgSlug"}
 LEGACY_AUTHOR_FIELDS = (
-    "authorExternalId",
     "authorSlug",
     "authorName",
     "authorTitle",
@@ -40,7 +38,6 @@ ALLOWED_PATCH_FIELDS = {
     "title",
     "content",
     "author",
-    "authorExternalId",
     "authorSlug",
     "authorName",
     "excerpt",
@@ -67,14 +64,14 @@ def _author_object_error(author: object) -> str | None:
     unknown_fields = sorted(set(author) - ALLOWED_AUTHOR_FIELDS)
     if unknown_fields:
         return f"author has unsupported fields: {unknown_fields}"
-    if not isinstance(author.get("name"), str) or not author["name"].strip():
+    name = author.get("name")
+    if not isinstance(name, str) or not name.strip():
         return "author requires a non-empty name"
-    if (
-        not isinstance(author.get("externalId"), str)
-        or not author["externalId"].strip()
+    if name != name.strip() or any(
+        ord(character) < 32 or ord(character) == 127 for character in name
     ):
-        return "author requires a non-empty externalId"
-    for field in ("externalId", "slug", "title", "orgSlug"):
+        return "author name must not contain surrounding whitespace or control characters"
+    for field in ("slug", "title", "orgSlug"):
         value = author.get(field)
         if value is not None and not isinstance(value, str):
             return f"author field {field} must be a string"
@@ -157,7 +154,6 @@ class LsforumContentApiAdapter:
                 "Blog target mapping requires author or a non-empty authorName",
             )
         for field in (
-            "authorExternalId",
             "authorSlug",
             "authorTitle",
             "orgSlug",
@@ -272,12 +268,19 @@ class LsforumContentApiAdapter:
                 "publication_request_invalid",
                 "Mapped target is invalid",
             )
+        mapped_fields = dict(target["mapped_fields"])
+        mapped_fields.pop("authorExternalId", None)
+        author = mapped_fields.get("author")
+        if isinstance(author, dict) and "externalId" in author:
+            current_author = dict(author)
+            current_author.pop("externalId", None)
+            mapped_fields["author"] = current_author
         payload = {
             "title": request["title"],
             "content": request["body_markdown"],
             "slug": request["slug"],
             "status": "published",
-            **target["mapped_fields"],
+            **mapped_fields,
         }
         if request.get("cover_image") is not None:
             payload["image"] = request["cover_image"]

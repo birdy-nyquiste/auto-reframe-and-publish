@@ -6,9 +6,9 @@
   "targets": {
     "birdy-test": {
       "author": {
-        "externalId": "author_efc239a49a1e4b55b9b55450b3591d43",
         "name": "birdy-test"
-      }
+      },
+      "postType": "opinion"
     }
   }
 }

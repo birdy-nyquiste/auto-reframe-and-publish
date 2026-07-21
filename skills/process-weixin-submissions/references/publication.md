@@ -13,16 +13,18 @@ The fake adapter is for core validation. The LSForum adapter reads a non-secret 
   "targets": {
     "local-target-id": {
       "author": {
-        "externalId": "author_stable_opaque_id",
         "name": "Public author name"
       },
+      "postType": "opinion",
       "category": "Community"
     }
   }
 }
 ```
 
-New targets use the deployed preferred `author` object with required stable `externalId` and mutable `name`, plus optional `slug`, `title`, and `orgSlug`. Legacy target records may still use non-empty `authorName`. The nested object cannot be combined with legacy flat author fields, preventing ambiguous identity precedence. Allowed identity aliases include `authorExternalId`, `authorSlug`, and `orgSlug`; other optional mapping fields are `authorTitle`, `orgName`, `postType`, `category`, `featured`, and `tags`. The API key value comes only from the named environment variable; the request artifact contains no secret.
+New targets use the deployed preferred `author` object with required `name`, plus optional `slug`, `title`, and `orgSlug`. Blog API v0.6 matches authors by the exact `author.name`; changing the name may therefore create or select a different Blog author. Surrounding whitespace and control characters are rejected instead of being normalized into a possibly different identity. `externalId` and `authorExternalId` are obsolete and rejected in new target mappings and management changes. For recovery compatibility only, the adapter removes either obsolete field from a historical fixed v0.5 publication request before sending it. Legacy target records may still use non-empty `authorName`. The nested object cannot be combined with legacy flat author fields, preventing ambiguous identity precedence. Other optional mapping fields are `authorSlug`, `authorTitle`, `orgSlug`, `orgName`, `postType`, `category`, `featured`, and `tags`. The API key value comes only from the named environment variable; the request artifact contains no secret.
+
+The Blog default is now `postType: opinion`; the checked-in LSForum target sets it explicitly so publication behavior does not depend on a remote default. This Skill does not synthesize or send `excerpt`, so the Blog displays no lead quote; v0.6 no longer derives one from the Markdown body.
 
 The environment value must be unquoted printable ASCII without surrounding whitespace. Shell syntax may use normal ASCII quotes to assign the value, but those quote characters must not become part of the value. Invalid formatting is reported as `needs_configuration` before any Blog request.
 

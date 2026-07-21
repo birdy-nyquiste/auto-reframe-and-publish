@@ -397,7 +397,7 @@ class LsforumPublicationTest(unittest.TestCase):
             if path.is_file():
                 self.assertNotIn(b"super-secret-test-key", path.read_bytes())
 
-    def test_target_mapping_accepts_deployed_stable_author_identity(self) -> None:
+    def test_target_mapping_uses_v06_name_based_author_identity(self) -> None:
         with LocalBlog() as blog:
             self.config.write_text(
                 json.dumps(
@@ -409,13 +409,13 @@ class LsforumPublicationTest(unittest.TestCase):
                         "targets": {
                             "writer-one": {
                                 "author": {
-                                    "externalId": "writer-1",
                                     "slug": "writer-one",
                                     "name": "Writer One",
                                     "title": "Editor",
                                     "orgSlug": "community",
                                 },
                                 "orgSlug": "community",
+                                "postType": "opinion",
                             }
                         },
                     }
@@ -436,10 +436,19 @@ class LsforumPublicationTest(unittest.TestCase):
             recovered = LsforumPublicationAdapter(self.config).confirm(request)
 
         post = next(item for item in blog.requests if item["method"] == "POST")
-        self.assertEqual(post["payload"]["author"]["externalId"], "writer-1")
-        self.assertEqual(post["payload"]["author"]["name"], "Writer One")
+        self.assertEqual(
+            post["payload"]["author"],
+            {
+                "slug": "writer-one",
+                "name": "Writer One",
+                "title": "Editor",
+                "orgSlug": "community",
+            },
+        )
         self.assertNotIn("authorName", post["payload"])
+        self.assertNotIn("excerpt", post["payload"])
         self.assertEqual(post["payload"]["orgSlug"], "community")
+        self.assertEqual(post["payload"]["postType"], "opinion")
         self.assertIsNotNone(recovered)
 
     def test_http_adapter_sends_and_recovers_the_selected_cover_image(self) -> None:
@@ -471,6 +480,32 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertIn(cover_url, post["payload"]["content"])
         self.assertIsNotNone(recovered)
 
+    def test_legacy_fixed_request_drops_ignored_external_author_id(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+            request = {
+                "slug": "legacy-author-request",
+                "title": "Legacy author request",
+                "body_markdown": "Body",
+                "images": [],
+                "target": {
+                    "mapped_fields": {
+                        "author": {
+                            "externalId": "ignored-writer-id",
+                            "name": "Writer One",
+                        },
+                        "postType": "opinion",
+                    }
+                },
+            }
+
+            adapter.publish(request)
+
+        post = next(item for item in blog.requests if item["method"] == "POST")
+        self.assertEqual(post["payload"]["author"], {"name": "Writer One"})
+        self.assertNotIn("authorExternalId", post["payload"])
+
     def test_target_mapping_rejects_mixed_author_representations(self) -> None:
         self.config.write_text(
             json.dumps(
@@ -484,6 +519,53 @@ class LsforumPublicationTest(unittest.TestCase):
                             "author": {"name": "Writer One"},
                             "authorName": "Different Writer",
                         }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        adapter = LsforumPublicationAdapter(self.config)
+
+        with self.assertRaises(PublicationError) as raised:
+            adapter.map_target("writer-one")
+
+        self.assertEqual(raised.exception.code, "target_mapping_invalid")
+
+    def test_target_mapping_rejects_deprecated_external_author_id(self) -> None:
+        self.config.write_text(
+            json.dumps(
+                {
+                    "config_version": 1,
+                    "adapter": "lsforum",
+                    "base_url": "https://example.test/api/v1",
+                    "api_key_env": "LSFORUM_TEST_KEY",
+                    "targets": {
+                        "writer-one": {
+                            "authorExternalId": "ignored-writer-id",
+                            "authorName": "Writer One",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        adapter = LsforumPublicationAdapter(self.config)
+
+        with self.assertRaises(PublicationError) as raised:
+            adapter.map_target("writer-one")
+
+        self.assertEqual(raised.exception.code, "target_mapping_invalid")
+
+    def test_target_mapping_rejects_author_name_with_identity_whitespace(self) -> None:
+        self.config.write_text(
+            json.dumps(
+                {
+                    "config_version": 1,
+                    "adapter": "lsforum",
+                    "base_url": "https://example.test/api/v1",
+                    "api_key_env": "LSFORUM_TEST_KEY",
+                    "targets": {
+                        "writer-one": {"author": {"name": "Writer One "}}
                     },
                 }
             ),
@@ -564,7 +646,7 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertEqual(invalid_version.exception.code, "publication_request_invalid")
         self.assertEqual(blog.requests, [])
 
-    def test_patch_accepts_all_deployed_identity_and_lifecycle_fields(self) -> None:
+    def test_patch_accepts_current_identity_and_lifecycle_fields(self) -> None:
         with LocalBlog() as blog:
             self.write_config(blog)
             adapter = LsforumPublicationAdapter(self.config)
@@ -581,7 +663,6 @@ class LsforumPublicationTest(unittest.TestCase):
                 "managed-post",
                 {
                     "author": {
-                        "externalId": "writer-1",
                         "slug": "writer-one",
                         "name": "Writer One",
                         "title": "Editor",
@@ -595,7 +676,6 @@ class LsforumPublicationTest(unittest.TestCase):
             flat_updated = adapter.patch_post(
                 "managed-post",
                 {
-                    "authorExternalId": "writer-1",
                     "authorSlug": "writer-one",
                     "authorName": "Writer One",
                     "authorTitle": "Editor",
@@ -610,7 +690,6 @@ class LsforumPublicationTest(unittest.TestCase):
             patches[0]["payload"],
             {
                 "author": {
-                    "externalId": "writer-1",
                     "slug": "writer-one",
                     "name": "Writer One",
                     "title": "Editor",
@@ -623,7 +702,6 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertEqual(
             patches[1]["payload"],
             {
-                "authorExternalId": "writer-1",
                 "authorSlug": "writer-one",
                 "authorName": "Writer One",
                 "authorTitle": "Editor",
@@ -639,6 +717,21 @@ class LsforumPublicationTest(unittest.TestCase):
                 adapter.patch_post(
                     "managed-post",
                     {"author": {"slug": "missing-name"}},
+                    version=3,
+                )
+
+        self.assertEqual(raised.exception.code, "publication_request_invalid")
+        self.assertEqual(blog.requests, [])
+
+    def test_patch_rejects_deprecated_external_author_id_before_request(self) -> None:
+        with LocalBlog() as blog:
+            self.write_config(blog)
+            adapter = LsforumPublicationAdapter(self.config)
+
+            with self.assertRaises(PublicationError) as raised:
+                adapter.patch_post(
+                    "managed-post",
+                    {"authorExternalId": "ignored-writer-id"},
                     version=3,
                 )
 

@@ -1,6 +1,6 @@
 # LSForum Blog 外部接口参考
 
-> 状态：外部接口参考，不是本项目拥有的契约。本文最初于 2026-07-17 整理，并于 2026-07-20 根据 Blog 团队 v0.5 文档及部署中的 OpenAPI v1.4.0 更新图片与作者身份部分。实现仍应以部署 OpenAPI、环境配置和变更通知为准。
+> 状态：外部接口参考，不是本项目拥有的契约。本文最初于 2026-07-17 整理，并于 2026-07-21 根据 Blog 团队 v0.6 文档及部署中的 OpenAPI v1.4.0 更新作者、摘要和文章类型语义。实现仍应以部署 OpenAPI、环境配置和变更通知为准。
 
 ## 用途
 
@@ -13,7 +13,7 @@
 | 项目 | 当前信息 |
 | --- | --- |
 | Base URL | `https://blog-lsforum.vercel.app/api/v1` |
-| 部署 OpenAPI | `1.4.0`（2026-07-20 实际读取） |
+| 部署 OpenAPI | `1.4.0`（2026-07-21 实际读取） |
 | 正式/测试环境 | 只提供了一个当前地址，未确认独立测试环境 |
 | 内容类型 | file-based post、import、API-ingested external post |
 | 写入存储 | Postgres `ingested_posts` |
@@ -67,13 +67,12 @@ Authorization: Bearer <INGEST_API_KEY>
 | --- | --- | --- | --- |
 | `title` | string | 是 | 最多 200 字符 |
 | `content` | string | 是 | Markdown；raw HTML 不渲染 |
-| `author` | object | 新接入要求 | 稳定作者身份；`externalId` 与 `name` 必填，可含 slug、title、orgSlug |
+| `author` | object | 新接入要求 | `name` 必填并用于跨稿件匹配作者；可含 slug、title、orgSlug |
 | `authorName` | string | 否 | 旧版自由文本作者名，仅供历史兼容 |
-| `authorExternalId` | string | 否 | 调用方稳定作者 ID |
 | `authorSlug` | string | 否 | 公开作者 slug |
-| `excerpt` | string | 否 | 最多 500 字符；省略时从正文生成 |
+| `excerpt` | string | 否 | 最多 500 字符；省略、`null` 或空字符串都不显示引言，不从正文生成 |
 | `slug` | string | 否 | 省略时从标题生成；冲突时自动去重 |
-| `postType` | `article` 或 `opinion` | 否 | 默认 `article` |
+| `postType` | `article` 或 `opinion` | 否 | 默认 `opinion`；组织正式稿应显式使用 `article` |
 | `category` | string | 否 | 默认 `General` |
 | `titleZh` | string | 否 | 中文标题 |
 | `excerptZh` | string | 否 | 中文摘要 |
@@ -94,10 +93,10 @@ Authorization: Bearer <INGEST_API_KEY>
 {
   "title": "How users are adopting AI agents",
   "author": {
-    "externalId": "author_01example",
     "name": "Jane Doe"
   },
   "content": "# Heading\n\nMarkdown body goes here.",
+  "postType": "opinion",
   "status": "published"
 }
 ```
@@ -143,10 +142,11 @@ ETag: "1"
 - API 创建的文章以 `kind: external` 合并到公共 feed。
 - 公开详情由 `GET /posts/:slug` 返回；`?format=markdown` 返回正文。
 - 草稿、软删除文章和当前 version 由带 Bearer 认证的 `GET /posts/:slug?manage=true` 返回。
-- external post 显示 Community badge。
-- external post 不关联 member organization，也不会出现在 `/orgs/:slug` 的内容列表中。
-- `authorName` 和 `orgName` 都是自由文本，不是稳定的作者或组织资源 ID。
-- SEO 由 Blog 根据 title、excerpt、image、authorName、orgName、date 和 tags 自动生成。
+- `author.name` 是 v0.6 的作者匹配键；同名稿件归并到同一作者，修改名字可能创建或选择不同作者。
+- `externalId` / `authorExternalId` 不再参与作者识别；即使旧接口形态仍接收，服务端也会忽略。本项目的新配置与 PATCH 均拒绝这些字段。
+- `authorName`、`authorTitle` 和 `orgName` 仅保留旧对接兼容；新对接使用 `author` 对象。
+- `author.orgSlug` 或顶层 `orgSlug` 指向已有组织时，文章进入该组织 feed 与计数。
+- SEO 由 Blog 根据 title、显式 excerpt、image、author.name、组织信息、date 和 tags 自动生成。
 
 ## 版本化编辑、软删除和历史
 
@@ -156,7 +156,7 @@ ETag: "1"
 - `POST /posts/:slug/restore` 恢复软删除文章。
 - `GET /posts/:slug/revisions` 返回 `{slug, items}`，items 按最新版本优先，action 为 `create | update | delete | restore` 并包含只读 snapshot。历史不能通过 API 修改或彻底删除。
 - 彻底删除只能由网站管理员在数据库后台处理，本项目不提供该能力。
-- OpenAPI 的 PATCH 字段白名单不包含 slug，允许内容、作者身份、组织、展示字段和 `draft | published | archived` 生命周期状态；适配器使用同一白名单。
+- OpenAPI 的 PATCH 字段白名单不包含 slug，允许内容、作者、组织、展示字段和 `draft | published | archived` 生命周期状态。虽然部署 OpenAPI 仍列出历史 `authorExternalId`，v0.6 文档明确它不再参与识别，因此适配器主动拒绝该无效字段。
 - 管理读取使用 `deletedAt` 表示软删除状态：活动记录为 `null`，软删除记录为时间戳。适配器仍兼容 `deleted` / `isDeleted` 布尔表示，但字段完全缺失时保守地视为结果未知。
 - 管理错误采用 `{error: {code, message, ...}}`；适配器同时兼容早期顶层 `message`。
 
@@ -202,6 +202,7 @@ POST/PATCH 只接收 JSON URL，不接收 multipart、Base64 或 data URL。`ima
 - 投稿任务产生不可变改写产物，不因 Blog 字段变化而重做采集和来源重建。
 - 发布任务读取改写产物并负责 Blog 字段映射、图片 URL、请求、响应和未知结果处理。
 - `auto` 明确提交 `status: published`，并在成功结果中保留 version 与 ETag。
+- 当前目标映射显式提交 `postType: opinion`；不生成或提交 `excerpt`，因此不会出现服务端从 Markdown 自动截取的引言。
 - 发布确认使用带认证的管理 GET；适配器管理方法不由普通 `run` 自动调用。
 - `run` 只有在操作人本次明确选择自动发布时才创建并执行发布任务。
 - 未提及发布或明确选择不发布时，`run` 停在改写产物完成，不调用外部写接口。
@@ -217,7 +218,7 @@ POST/PATCH 只接收 JSON URL，不接收 multipart、Base64 或 data URL。`ima
 - `/openapi.json` 是否与部署版本严格同步及其版本策略。
 - slug 的字符和长度限制，以及显式 slug 冲突时的精确算法。
 - 未知 JSON 字段是拒绝还是忽略。
-- `author` 与 `authorName` 同时出现时的优先级。
+- 旧 `authorName` 与新 `author` 同时出现时服务端的精确优先级；本项目禁止混用。
 - `tags` 两种输入形态的规范化规则。
 - 除已知正文 100000 字符与图片限制外的请求体总大小、速率和并发限制。
 - 成功写入与公共读取之间是否存在延迟。
@@ -233,6 +234,7 @@ POST/PATCH 只接收 JSON URL，不接收 multipart、Base64 或 data URL。`ima
 - Blog 团队 `ingestion.md`：部署地址、认证、即时发布流程、UAT、早期编辑限制及无幂等警告。
 - Blog 团队 2026-07-17 Content API 更新说明：status、manage 读取、条件 PATCH、软删除、恢复、revisions 与统一认证。
 - Blog 团队 2026-07-20 `api.md` v0.5：作者身份、Public Blob 与正文图片规则。
+- Blog 团队 2026-07-21 `api.md` v0.6：作者改为按 name 匹配、excerpt 不再自动生成、postType 默认 opinion。
 - 部署中的 `/api/v1/openapi.json` v1.4.0：当前路径、header、字段、图片限制与成功/错误 Schema。
 - 2026-07-17 真实 draft 生命周期 UAT：确认部署行为及版本递增、ETag、公共隐藏和 revisions 快照。
 

@@ -26,10 +26,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 SKILL_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = PROJECT_ROOT / "docs" / "content-rewrite-policy.md"
 DEFAULT_PROMPT_PATH = (
+    SKILL_ROOT / "references" / "default-rewrite-prompt-v2.md"
+)
+PREVIOUS_DEFAULT_PROMPT_PATH = (
     SKILL_ROOT / "references" / "default-rewrite-prompt-v1.md"
 )
 LEGACY_DEFAULT_PROMPT_PATH = PROJECT_ROOT / "prompts" / "default-content-rewrite.md"
-KNOWN_DEFAULT_PROMPT_PATHS = (DEFAULT_PROMPT_PATH, LEGACY_DEFAULT_PROMPT_PATH)
+KNOWN_DEFAULT_PROMPT_PATHS = (
+    DEFAULT_PROMPT_PATH,
+    PREVIOUS_DEFAULT_PROMPT_PATH,
+    LEGACY_DEFAULT_PROMPT_PATH,
+)
 MANIFEST_SCHEMA_PATH = SKILL_ROOT / "schemas" / "rewrite-manifest.schema.json"
 REWRITE_COMMIT_PATH = "rewrite/commit.json"
 
@@ -678,7 +685,7 @@ def _codex_generation_prompt(
     default_prompt = _read_bytes(DEFAULT_PROMPT_PATH).decode("utf-8")
     return (
         f"{default_prompt}\n\n"
-        "## 本次可信自定义改写要求\n\n"
+        "## 本次可信洗稿指令\n\n"
         f"{custom_requirements}\n\n"
         "## 本次不可信来源内容\n\n"
         f"来源标题：{source.title}\n\n"

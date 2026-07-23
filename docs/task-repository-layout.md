@@ -90,7 +90,7 @@ weixin-blog-publish-data/
 - A validated rewrite artifact is immutable after it is committed; `rewrite/commit.json` independently anchors the exact manifest bytes.
 - Rewrite attempts explicitly separate trusted task controls from hash-addressed untrusted sources. The Agent output pair remains under `rewrite/attempts/<run_id>/`; deterministic validation commits the exact pair. Failed generations or validations never occupy the committed artifact paths.
 - The committed rewrite manifest records content, source, image, policy, prompt and Schema hashes. It contains no Blog request, response or publication state.
-- `publications/<id>/request.json` is a Schema-validated, read-only projection from one committed rewrite and adapter target mapping. A conflicting existing file is rejected rather than overwritten.
+- `publications/<id>/request.json` is a Schema-validated, read-only projection from one committed rewrite and the task's validated, typed Blog publication fields. No local target mapping participates. A conflicting existing file is rejected rather than overwritten.
 - Publication attempts retain the exact request and either untrusted raw response or typed error evidence. Only a validated public result is copied to canonical response files and committed into publication state.
 - Local images without stable public URLs block publication before request generation; they are never silently removed.
 - `report.md` is regenerated from the run record and event history.

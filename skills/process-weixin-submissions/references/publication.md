@@ -9,22 +9,13 @@ The fake adapter is for core validation. The LSForum adapter reads a non-secret 
   "config_version": 1,
   "adapter": "lsforum",
   "base_url": "https://blog-lsforum.vercel.app/api/v1",
-  "api_key_env": "LSFORUM_INGEST_API_KEY",
-  "targets": {
-    "local-target-id": {
-      "author": {
-        "name": "Public author name"
-      },
-      "postType": "opinion",
-      "category": "Community"
-    }
-  }
+  "api_key_env": "LSFORUM_INGEST_API_KEY"
 }
 ```
 
-New targets use the deployed preferred `author` object with required `name`, plus optional `slug`, `title`, and `orgSlug`. Blog API v0.6 matches authors by the exact `author.name`; changing the name may therefore create or select a different Blog author. Surrounding whitespace and control characters are rejected instead of being normalized into a possibly different identity. `externalId` and `authorExternalId` are obsolete and rejected in new target mappings and management changes. For recovery compatibility only, the adapter removes either obsolete field from a historical fixed v0.5 publication request before sending it. Legacy target records may still use non-empty `authorName`. The nested object cannot be combined with legacy flat author fields, preventing ambiguous identity precedence. Other optional mapping fields are `authorSlug`, `authorTitle`, `orgSlug`, `orgName`, `postType`, `category`, `featured`, and `tags`. The API key value comes only from the named environment variable; the request artifact contains no secret.
+The task header supplies the Blog fields directly. `author.name` is required; optional safe fields are `author.slug`, `author.title`, `author.orgSlug`, `orgSlug`, `orgName`, `postType`, `category`, `featured`, and `tags`. Blog API v0.6 matches authors by the exact `author.name`; changing the name may therefore create or select a different Blog author. Surrounding whitespace and control characters are rejected instead of being normalized into a possibly different identity. The project stores these typed fields with the task for audit and request recovery, but maintains no local author/target mapping. `externalId`, `authorExternalId`, and legacy flat author fields are rejected for new intake. The API key value comes only from the named environment variable; the request artifact contains no secret.
 
-The Blog default is now `postType: opinion`; the checked-in LSForum target sets it explicitly so publication behavior does not depend on a remote default. This Skill does not synthesize or send `excerpt`, so the Blog displays no lead quote; v0.6 no longer derives one from the Markdown body.
+If publication behavior must not depend on the remote default, the sender should include `postType: opinion` in `#投稿`. This Skill does not synthesize or send `excerpt`, so the Blog displays no lead quote; v0.6 no longer derives one from the Markdown body.
 
 The environment value must be unquoted printable ASCII without surrounding whitespace. Shell syntax may use normal ASCII quotes to assign the value, but those quote characters must not become part of the value. Invalid formatting is reported as `needs_configuration` before any Blog request.
 
@@ -37,7 +28,7 @@ Successful publication retains the current integer `version` and HTTP `ETag` in 
 
 PATCH requires a caller-supplied current version and sends `X-Post-Version: "<version>"`, as specified by deployed OpenAPI v1.2.0. Nested and legacy flat author representations are mutually exclusive here as well. A missing/invalid header is `428`; a stale version is `412` / `blog_version_conflict` and is never retried automatically. DELETE means soft delete only; restore uses the dedicated endpoint, revisions are read-only, and permanent deletion remains an administrator-only database action.
 
-Every publication fixes its ID, slug, content task, rewrite commit hash, target mapping, adapter destination, and complete request before POST. Recovery verifies the request bytes against every attempt copy and marker hash, then verifies the task, rewrite commit, target, title, body, images, adapter, and destination before any external action. A successful response is retained raw, including the ETag response header, and normalized to the public slug, URL, content status, version, and ETag. Local images without stable public URLs produce `needs_configuration` before any request is sent.
+Every publication fixes its ID, slug, content task, rewrite commit hash, direct Blog publication fields, adapter destination, and complete request before POST. Recovery verifies the request bytes against every attempt copy and marker hash, then verifies the task, rewrite commit, publication fields, title, body, images, adapter, and destination before any external action. A successful response is retained raw, including the ETag response header, and normalized to the public slug, URL, content status, version, and ETag. Local images without stable public URLs produce `needs_configuration` before any request is sent.
 
 An operator may later explicitly authorize a text-only version of an existing validated rewrite with `publish --image-policy omit`. This does not alter raw evidence, structured source, or the committed rewrite. The independent publication aggregate records an immutable presentation policy, the number of removed Markdown image embeds, and hashes of both source and published bodies. The default `preserve` policy retains the local-image safety block.
 
@@ -49,4 +40,4 @@ Attempt evidence distinguishes `prepared` from `send_started`. A later explicit 
 
 LSForum currently has no idempotency key. Before POST, the adapter checks the fixed slug. After a transport interruption or 5xx, it checks the slug again. If matching content is visible, the result is recovered; otherwise the publication becomes `outcome_unknown` and must not be automatically POSTed again.
 
-Use the real adapter only with an operator-approved target. Automated tests use a localhost HTTP fixture. Separate controlled live acceptance evidence is recorded in [../../../docs/validation/2026-07-17-lsforum-live-acceptance.md](../../../docs/validation/2026-07-17-lsforum-live-acceptance.md).
+Use the real adapter only with operator-approved publication fields. Automated tests use a localhost HTTP fixture. Separate controlled live acceptance evidence is recorded in [../../../docs/validation/2026-07-17-lsforum-live-acceptance.md](../../../docs/validation/2026-07-17-lsforum-live-acceptance.md).

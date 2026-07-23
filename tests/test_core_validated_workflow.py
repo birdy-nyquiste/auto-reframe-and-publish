@@ -28,7 +28,7 @@ def submission(prefix: str, target: str) -> list[dict[str, object]]:
         {
             "message_id": f"{prefix}-header",
             "kind": "text",
-            "text": f"#投稿\n目标: {target}",
+            "text": f"#投稿\nauthor.name: {target}",
         },
         {
             "message_id": f"{prefix}-article",
@@ -148,7 +148,7 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
                 {
                     "message_id": "missing-target-header",
                     "kind": "text",
-                    "text": "#投稿\n目标:",
+                    "text": "#投稿\nauthor.name:",
                 },
                 {
                     "message_id": "missing-target-article",
@@ -286,7 +286,7 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
                 {
                     "message_id": "orphan-header",
                     "kind": "text",
-                    "text": "#投稿\n目标: author-orphan",
+                    "text": "#投稿\nauthor.name: author-orphan",
                 },
             ]
         )

@@ -27,7 +27,7 @@ def header(message_id: str, target: str) -> dict[str, object]:
     return {
         "message_id": message_id,
         "kind": "text",
-        "text": f"#投稿\n目标: {target}",
+        "text": f"#投稿\nauthor.name: {target}",
     }
 
 
@@ -223,14 +223,16 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 {
                     "message_id": "empty-header",
                     "kind": "text",
-                    "text": "#投稿\n目标: author-empty\n要求:",
+                    "text": "#投稿\nauthor.name: author-empty\n洗稿指令:",
                 },
                 article("empty-article", "空要求"),
                 {
                     "message_id": "multiline-header",
                     "kind": "text",
                     "text": (
-                        "#投稿\n目标: author-custom\n文章数: 1\n要求:\n"
+                        "#投稿\nauthor.name: author-custom\n文章数: 1\n"
+                        "postType: article\ncategory: AI\n"
+                        "tags: Kimi, AI, IPO\nfeatured: true\n洗稿指令:\n"
                         "突出恢复能力\n不要添加来源中没有的事实"
                     ),
                 },
@@ -238,32 +240,46 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 {
                     "message_id": "unknown-header",
                     "kind": "text",
-                    "text": "#投稿\n目标: author-unknown\n作者: 不应接受",
+                    "text": "#投稿\nauthor.name: author-unknown\n作者: 不应接受",
                 },
                 article("unknown-article", "未知字段"),
                 {
                     "message_id": "multi-source-header",
                     "kind": "text",
-                    "text": "#投稿\n目标: author-multi\n文章数: 2",
+                    "text": "#投稿\nauthor.name: author-multi\n文章数: 2",
                 },
                 article("multi-source-article", "暂不支持多文章"),
                 {
                     "message_id": "duplicate-field-header",
                     "kind": "text",
-                    "text": "#投稿\n目标: first\n目标: second",
+                    "text": "#投稿\nauthor.name: first\nauthor.name: second",
                 },
                 article("duplicate-field-article", "重复控制字段"),
+                {
+                    "message_id": "protected-field-header",
+                    "kind": "text",
+                    "text": "#投稿\nauthor.name: author-protected\nstatus: published",
+                },
+                article("protected-field-article", "受保护字段"),
+                {
+                    "message_id": "old-field-header",
+                    "kind": "text",
+                    "text": "#投稿\n目标: legacy\n要求: 不应兼容",
+                },
+                article("old-field-article", "旧字段"),
             ]
         )
 
         result = self.run_intake()
-        self.assertEqual(len(result["task_ids"]), 6)
+        self.assertEqual(len(result["task_ids"]), 8)
         self.assertEqual(
             [item["status"] for item in result["task_results"]],
             [
                 "rewrite_artifact_ready",
                 "rewrite_artifact_ready",
                 "rewrite_artifact_ready",
+                "needs_input",
+                "needs_input",
                 "needs_input",
                 "needs_input",
                 "needs_input",
@@ -276,6 +292,16 @@ class MarkerWindowIntakeTest(unittest.TestCase):
             records[2]["requirements"],
             "突出恢复能力\n不要添加来源中没有的事实",
         )
+        self.assertEqual(
+            records[2]["publication_fields"],
+            {
+                "author": {"name": "author-custom"},
+                "postType": "article",
+                "category": "AI",
+                "tags": ["Kimi", "AI", "IPO"],
+                "featured": True,
+            },
+        )
         self.assertEqual(records[3]["blocker"]["reason"], "unknown_control_field")
         self.assertEqual(
             records[4]["blocker"]["reason"], "unsupported_article_count"
@@ -283,6 +309,8 @@ class MarkerWindowIntakeTest(unittest.TestCase):
         self.assertEqual(
             records[5]["blocker"]["reason"], "duplicate_control_field"
         )
+        self.assertEqual(records[6]["blocker"]["reason"], "protected_blog_field")
+        self.assertEqual(records[7]["blocker"]["reason"], "unknown_control_field")
         self.assertEqual(list((self.repository / "publications").iterdir()), [])
 
     def test_invalid_inputs_are_isolated_and_identical_submissions_remain_distinct(
@@ -291,7 +319,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
         self.initialize_chat()
         duplicate_header = {
             "kind": "text",
-            "text": "#投稿\n目标: author-duplicate",
+            "text": "#投稿\nauthor.name: author-duplicate",
         }
         duplicate_article = {
             "kind": "official_account_article",
@@ -305,7 +333,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 {
                     "message_id": "missing-target-header",
                     "kind": "text",
-                    "text": "#投稿\n目标:",
+                    "text": "#投稿\nauthor.name:",
                 },
                 article("missing-target-article", "缺少目标"),
                 header("unsupported-header", "author-file"),
@@ -342,7 +370,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 if item["status"] == "needs_input"
             ],
             [
-                "missing_target",
+                "missing_author_name",
                 "unsupported_source_type",
                 "missing_task_header",
                 "missing_adjacent_article",

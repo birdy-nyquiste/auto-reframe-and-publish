@@ -468,6 +468,9 @@ def _run_candidates(
             "created_at": started_at,
             "updated_at": started_at,
             "target_id": candidate.target_id,
+            "publication_fields": (
+                submission.publication_fields if submission else None
+            ),
             "requirements": submission.requirements if submission else None,
             "milestone": "task_created",
             "blocker": blocker,

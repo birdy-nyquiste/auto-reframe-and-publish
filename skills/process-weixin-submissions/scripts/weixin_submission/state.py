@@ -192,10 +192,13 @@ def _validate_state_event(
             "created_in_run",
             "created_at",
             "target_id",
+            "publication_fields",
             "requirements",
         )
         changed = [
-            field for field in immutable_fields if state_after[field] != previous[field]
+            field
+            for field in immutable_fields
+            if state_after.get(field) != previous.get(field)
         ]
         if changed:
             raise SchemaValidationError(

@@ -21,8 +21,19 @@
     "created_in_run": {"type": "string"},
     "created_at": {"type": "string"},
     "updated_at": {"type": "string"},
-    "target_id": {"type": ["string", "null"]},
-    "requirements": {"type": ["string", "null"]},
+    "target_id": {
+      "type": ["string", "null"],
+      "description": "Schema-v2 rewrite-integrity compatibility projection of publication_fields.author.name. It is not a Blog lookup ID or target mapping."
+    },
+    "publication_fields": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "description": "Validated, typed Blog fields captured directly from the task header. Optional only so historical schema-v2 tasks remain readable."
+    },
+    "requirements": {
+      "type": ["string", "null"],
+      "description": "Internal schema-v2 storage for the optional 洗稿指令."
+    },
     "milestone": {
       "type": "string",
       "enum": [

@@ -3,12 +3,11 @@
   "$id": "blog-config.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["config_version", "adapter", "base_url", "api_key_env", "targets"],
+  "required": ["config_version", "adapter", "base_url", "api_key_env"],
   "properties": {
     "config_version": {"type": "integer", "const": 1},
     "adapter": {"type": "string", "const": "lsforum"},
     "base_url": {"type": "string"},
-    "api_key_env": {"type": "string"},
-    "targets": {"type": "object", "additionalProperties": true}
+    "api_key_env": {"type": "string"}
   }
 }

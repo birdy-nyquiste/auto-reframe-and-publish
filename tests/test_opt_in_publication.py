@@ -99,7 +99,7 @@ class OptInPublicationTest(unittest.TestCase):
                 {
                     "message_id": f"header-{suffix}",
                     "kind": "text",
-                    "text": f"#投稿\n目标: author-{suffix}",
+                    "text": f"#投稿\nauthor.name: author-{suffix}",
                 },
                 {
                     "message_id": f"article-{suffix}",
@@ -713,7 +713,7 @@ output_path.write_text(
                 FakePublicBlobUploader(self.root / "fake-validation-blob"),
             )
 
-    def test_missing_target_mapping_blocks_before_http(self) -> None:
+    def test_missing_api_key_blocks_before_http_without_target_mapping(self) -> None:
         self.append_submission("unmapped")
         config = self.root / "blog-config.json"
         config.write_text(
@@ -723,7 +723,6 @@ output_path.write_text(
                     "adapter": "lsforum",
                     "base_url": "https://example.invalid/api/v1",
                     "api_key_env": "UNSET_TEST_KEY",
-                    "targets": {},
                 }
             ),
             encoding="utf-8",
@@ -735,7 +734,7 @@ output_path.write_text(
 
         publication = result["publication_results"][0]
         self.assertEqual(publication["status"], "needs_configuration")
-        self.assertEqual(publication["blocker_reason"], "target_mapping_missing")
+        self.assertEqual(publication["blocker_reason"], "api_key_missing")
 
 
 if __name__ == "__main__":

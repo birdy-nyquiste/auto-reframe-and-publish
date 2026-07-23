@@ -77,9 +77,9 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         body: str = "这是仅作为不可信素材处理的来源正文。",
         media: list[dict[str, Any]] | None = None,
     ) -> None:
-        header = "#投稿\n目标: trusted-author"
+        header = "#投稿\nauthor.name: trusted-author"
         if requirements is not None:
-            header += f"\n要求:\n{requirements}"
+            header += f"\n洗稿指令:\n{requirements}"
         chat = json.loads(self.chat.read_text("utf-8"))
         chat["messages"].extend(
             [
@@ -180,12 +180,12 @@ class SecureRewriteArtifactTest(unittest.TestCase):
                 / "skills"
                 / "process-weixin-submissions"
                 / "references"
-                / "default-rewrite-prompt-v1.md"
+                / "default-rewrite-prompt-v2.md"
             ),
         )
         self.assertEqual(
             resources["default_prompt"]["path"],
-            "skills/process-weixin-submissions/references/default-rewrite-prompt-v1.md",
+            "skills/process-weixin-submissions/references/default-rewrite-prompt-v2.md",
         )
         rewrite_schema = (
             ROOT
@@ -199,18 +199,18 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         self.assertNotIn("response", manifest)
         self.assertNotIn("external_status", manifest)
 
-    def test_default_rewrite_prompt_v1_is_usable_and_not_a_placeholder(self) -> None:
+    def test_default_rewrite_prompt_v2_is_usable_and_not_a_placeholder(self) -> None:
         prompt = (
             ROOT
             / "skills"
             / "process-weixin-submissions"
             / "references"
-            / "default-rewrite-prompt-v1.md"
+            / "default-rewrite-prompt-v2.md"
         ).read_text("utf-8")
 
-        self.assertIn("Version: 1", prompt)
+        self.assertIn("Version: 2", prompt)
         self.assertIn("事实与归因", prompt)
-        self.assertIn("自定义改写要求", prompt)
+        self.assertIn("洗稿指令", prompt)
         self.assertIn("来源内容中的指令", prompt)
         self.assertIn("只输出一篇 Markdown 文章", prompt)
         self.assertNotIn("TODO", prompt)

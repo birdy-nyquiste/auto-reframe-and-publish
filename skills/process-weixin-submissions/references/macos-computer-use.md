@@ -54,7 +54,7 @@ Do not scan or import messages before this baseline.
     {
       "message_id": "stable-ui-message-id-or-run-local-id",
       "kind": "text",
-      "text": "#投稿\n目标: target-id"
+      "text": "#投稿\nauthor.name: Public author name\npostType: opinion\n洗稿指令: 可选"
     },
     {
       "message_id": "stable-ui-message-id-or-run-local-id",

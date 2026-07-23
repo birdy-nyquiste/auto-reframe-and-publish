@@ -2,13 +2,5 @@
   "config_version": 1,
   "adapter": "lsforum",
   "base_url": "https://blog-lsforum.vercel.app/api/v1",
-  "api_key_env": "INGEST_API_KEY",
-  "targets": {
-    "birdy-test": {
-      "author": {
-        "name": "birdy-test"
-      },
-      "postType": "opinion"
-    }
-  }
+  "api_key_env": "INGEST_API_KEY"
 }

@@ -22,6 +22,7 @@ if str(SCRIPTS) not in sys.path:
 
 from weixin_submission.lsforum_blog import LsforumPublicationAdapter
 from weixin_submission.publication import PublicationError
+from weixin_submission.schema_validation import SchemaValidationError
 
 
 def run_cli(*arguments: object) -> subprocess.CompletedProcess[str]:
@@ -315,7 +316,20 @@ class LsforumPublicationTest(unittest.TestCase):
         chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
         chat["messages"].extend(
             [
-                {"message_id": "h", "kind": "text", "text": "#投稿\n目标: writer-one"},
+                {
+                    "message_id": "h",
+                    "kind": "text",
+                    "text": (
+                        "#投稿\n"
+                        "author.name: Writer One\n"
+                        "author.slug: writer-one\n"
+                        "author.title: Editor\n"
+                        "author.orgSlug: community\n"
+                        "orgSlug: community\n"
+                        "postType: opinion\n"
+                        "category: Community"
+                    ),
+                },
                 {
                     "message_id": "a",
                     "kind": "official_account_article",
@@ -336,12 +350,6 @@ class LsforumPublicationTest(unittest.TestCase):
                     "adapter": "lsforum",
                     "base_url": blog.base_url,
                     "api_key_env": "LSFORUM_TEST_KEY",
-                    "targets": {
-                        "writer-one": {
-                            "authorName": "Writer One",
-                            "category": "Community",
-                        }
-                    },
                 }
             ),
             encoding="utf-8",
@@ -363,7 +371,7 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return cast(dict[str, Any], json.loads(result.stdout))
 
-    def test_http_adapter_maps_target_and_persists_no_secret(self) -> None:
+    def test_http_adapter_uses_direct_publication_fields_and_persists_no_secret(self) -> None:
         with LocalBlog() as blog:
             self.write_config(blog)
             self.append_submission()
@@ -374,7 +382,7 @@ class LsforumPublicationTest(unittest.TestCase):
         posts = [request for request in blog.requests if request["method"] == "POST"]
         self.assertEqual(len(posts), 1)
         self.assertEqual(posts[0]["authorization"], "Bearer super-secret-test-key")
-        self.assertEqual(posts[0]["payload"]["authorName"], "Writer One")
+        self.assertEqual(posts[0]["payload"]["author"]["name"], "Writer One")
         self.assertEqual(posts[0]["payload"]["category"], "Community")
         self.assertEqual(posts[0]["payload"]["status"], "published")
         self.assertIn("content", posts[0]["payload"])
@@ -397,31 +405,9 @@ class LsforumPublicationTest(unittest.TestCase):
             if path.is_file():
                 self.assertNotIn(b"super-secret-test-key", path.read_bytes())
 
-    def test_target_mapping_uses_v06_name_based_author_identity(self) -> None:
+    def test_direct_fields_use_v06_name_based_author_identity(self) -> None:
         with LocalBlog() as blog:
-            self.config.write_text(
-                json.dumps(
-                    {
-                        "config_version": 1,
-                        "adapter": "lsforum",
-                        "base_url": blog.base_url,
-                        "api_key_env": "LSFORUM_TEST_KEY",
-                        "targets": {
-                            "writer-one": {
-                                "author": {
-                                    "slug": "writer-one",
-                                    "name": "Writer One",
-                                    "title": "Editor",
-                                    "orgSlug": "community",
-                                },
-                                "orgSlug": "community",
-                                "postType": "opinion",
-                            }
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
+            self.write_config(blog)
             self.append_submission()
             result = self.run_auto()
             publication_id = result["publication_results"][0]["publication_id"]
@@ -464,11 +450,9 @@ class LsforumPublicationTest(unittest.TestCase):
                 "body_markdown": f"Body\n\n![Cover]({cover_url})\n",
                 "images": [cover_url],
                 "cover_image": cover_url,
-                "target": {
-                    "mapped_fields": {
-                        "authorName": "Writer One",
-                        "category": "Community",
-                    }
+                "publication_fields": {
+                    "author": {"name": "Writer One"},
+                    "category": "Community",
                 },
             }
 
@@ -480,58 +464,54 @@ class LsforumPublicationTest(unittest.TestCase):
         self.assertIn(cover_url, post["payload"]["content"])
         self.assertIsNotNone(recovered)
 
-    def test_legacy_fixed_request_drops_ignored_external_author_id(self) -> None:
-        with LocalBlog() as blog:
-            self.write_config(blog)
-            adapter = LsforumPublicationAdapter(self.config)
-            request = {
-                "slug": "legacy-author-request",
-                "title": "Legacy author request",
-                "body_markdown": "Body",
-                "images": [],
-                "target": {
-                    "mapped_fields": {
+    def test_blog_config_rejects_local_target_mapping(self) -> None:
+        self.config.write_text(
+            json.dumps(
+                {
+                    "config_version": 1,
+                    "adapter": "lsforum",
+                    "base_url": "https://example.test/api/v1",
+                    "api_key_env": "LSFORUM_TEST_KEY",
+                    "targets": {"writer-one": {"author": {"name": "Writer One"}}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(SchemaValidationError) as raised:
+            LsforumPublicationAdapter(self.config)
+        self.assertIn("unknown fields ['targets']", str(raised.exception))
+
+    def test_direct_fields_reject_deprecated_external_author_id(self) -> None:
+        self.config.write_text(
+            json.dumps(
+                {
+                    "config_version": 1,
+                    "adapter": "lsforum",
+                    "base_url": "https://example.test/api/v1",
+                    "api_key_env": "LSFORUM_TEST_KEY",
+                }
+            ),
+            encoding="utf-8",
+        )
+        adapter = LsforumPublicationAdapter(self.config)
+
+        with self.assertRaises(PublicationError) as raised:
+            adapter.validate_request(
+                {
+                    "title": "Title",
+                    "body_markdown": "Body",
+                    "publication_fields": {
                         "author": {
-                            "externalId": "ignored-writer-id",
                             "name": "Writer One",
-                        },
-                        "postType": "opinion",
-                    }
-                },
-            }
-
-            adapter.publish(request)
-
-        post = next(item for item in blog.requests if item["method"] == "POST")
-        self.assertEqual(post["payload"]["author"], {"name": "Writer One"})
-        self.assertNotIn("authorExternalId", post["payload"])
-
-    def test_target_mapping_rejects_mixed_author_representations(self) -> None:
-        self.config.write_text(
-            json.dumps(
-                {
-                    "config_version": 1,
-                    "adapter": "lsforum",
-                    "base_url": "https://example.test/api/v1",
-                    "api_key_env": "LSFORUM_TEST_KEY",
-                    "targets": {
-                        "writer-one": {
-                            "author": {"name": "Writer One"},
-                            "authorName": "Different Writer",
+                            "externalId": "ignored-writer-id",
                         }
                     },
                 }
-            ),
-            encoding="utf-8",
-        )
-        adapter = LsforumPublicationAdapter(self.config)
+            )
 
-        with self.assertRaises(PublicationError) as raised:
-            adapter.map_target("writer-one")
+        self.assertEqual(raised.exception.code, "publication_request_invalid")
 
-        self.assertEqual(raised.exception.code, "target_mapping_invalid")
-
-    def test_target_mapping_rejects_deprecated_external_author_id(self) -> None:
+    def test_direct_fields_reject_author_name_with_identity_whitespace(self) -> None:
         self.config.write_text(
             json.dumps(
                 {
@@ -539,12 +519,6 @@ class LsforumPublicationTest(unittest.TestCase):
                     "adapter": "lsforum",
                     "base_url": "https://example.test/api/v1",
                     "api_key_env": "LSFORUM_TEST_KEY",
-                    "targets": {
-                        "writer-one": {
-                            "authorExternalId": "ignored-writer-id",
-                            "authorName": "Writer One",
-                        }
-                    },
                 }
             ),
             encoding="utf-8",
@@ -552,31 +526,17 @@ class LsforumPublicationTest(unittest.TestCase):
         adapter = LsforumPublicationAdapter(self.config)
 
         with self.assertRaises(PublicationError) as raised:
-            adapter.map_target("writer-one")
-
-        self.assertEqual(raised.exception.code, "target_mapping_invalid")
-
-    def test_target_mapping_rejects_author_name_with_identity_whitespace(self) -> None:
-        self.config.write_text(
-            json.dumps(
+            adapter.validate_request(
                 {
-                    "config_version": 1,
-                    "adapter": "lsforum",
-                    "base_url": "https://example.test/api/v1",
-                    "api_key_env": "LSFORUM_TEST_KEY",
-                    "targets": {
-                        "writer-one": {"author": {"name": "Writer One "}}
+                    "title": "Title",
+                    "body_markdown": "Body",
+                    "publication_fields": {
+                        "author": {"name": "Writer One "}
                     },
                 }
-            ),
-            encoding="utf-8",
-        )
-        adapter = LsforumPublicationAdapter(self.config)
+            )
 
-        with self.assertRaises(PublicationError) as raised:
-            adapter.map_target("writer-one")
-
-        self.assertEqual(raised.exception.code, "target_mapping_invalid")
+        self.assertEqual(raised.exception.code, "publication_request_invalid")
 
     def test_versioned_management_requests_use_auth_and_version_header(self) -> None:
         with LocalBlog() as blog:
@@ -810,7 +770,7 @@ class LsforumPublicationTest(unittest.TestCase):
                 "slug": "managed-post",
                 "title": "Original",
                 "body_markdown": "Body",
-                "target": {"mapped_fields": {"authorName": "Writer One"}},
+                "publication_fields": {"author": {"name": "Writer One"}},
             }
             with self.assertRaises(PublicationError) as ambiguous:
                 adapter.confirm(request)
@@ -984,7 +944,7 @@ class LsforumPublicationTest(unittest.TestCase):
                     {
                         "message_id": "h-new",
                         "kind": "text",
-                        "text": "#投稿\n目标: writer-one",
+                        "text": "#投稿\nauthor.name: writer-one",
                     },
                     {
                         "message_id": "a-new",

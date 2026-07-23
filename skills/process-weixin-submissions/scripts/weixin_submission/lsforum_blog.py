@@ -9,30 +9,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .blog_fields import BlogFieldError, validate_publication_fields
 from .publication import PublicationBlockerKind, PublicationError
 from .schema_validation import validate_record
 from .storage import WorkflowError, read_json
 
-
-ALLOWED_TARGET_FIELDS = {
-    "author",
-    "authorSlug",
-    "authorName",
-    "authorTitle",
-    "orgName",
-    "orgSlug",
-    "postType",
-    "category",
-    "featured",
-    "tags",
-}
-
-ALLOWED_AUTHOR_FIELDS = {"slug", "name", "title", "orgSlug"}
-LEGACY_AUTHOR_FIELDS = (
-    "authorSlug",
-    "authorName",
-    "authorTitle",
-)
 
 ALLOWED_PATCH_FIELDS = {
     "title",
@@ -56,6 +37,8 @@ ALLOWED_PATCH_FIELDS = {
     "tags",
     "status",
 }
+ALLOWED_AUTHOR_FIELDS = {"slug", "name", "title", "orgSlug"}
+LEGACY_AUTHOR_FIELDS = ("authorSlug", "authorName", "authorTitle")
 
 
 def _author_object_error(author: object) -> str | None:
@@ -84,18 +67,14 @@ class LsforumContentApiAdapter:
         validate_record("blog-config", config)
         base_url = config["base_url"]
         api_key_env = config["api_key_env"]
-        targets = config["targets"]
         if not isinstance(base_url, str) or not base_url.startswith(
             ("http://", "https://")
         ):
             raise WorkflowError("Blog base_url must use http or https")
         if not isinstance(api_key_env, str) or not api_key_env.strip():
             raise WorkflowError("Blog api_key_env must be non-empty")
-        if not isinstance(targets, dict):
-            raise WorkflowError("Blog targets must be an object")
         self.base_url = base_url.rstrip("/")
         self.api_key_env = api_key_env
-        self.targets = targets
         self.timeout_seconds = timeout_seconds
 
     @property
@@ -105,92 +84,6 @@ class LsforumContentApiAdapter:
     @property
     def destination_id(self) -> str:
         return self.base_url
-
-    def map_target(self, source_id: str) -> dict[str, Any]:
-        mapped = self.targets.get(source_id)
-        if not isinstance(mapped, dict):
-            raise PublicationError(
-                PublicationBlockerKind.NEEDS_CONFIGURATION,
-                "target_mapping_missing",
-                f"No Blog target mapping exists for {source_id}",
-            )
-        unknown = sorted(set(mapped) - ALLOWED_TARGET_FIELDS)
-        if unknown:
-            raise PublicationError(
-                PublicationBlockerKind.NEEDS_CONFIGURATION,
-                "target_mapping_invalid",
-                f"Blog target mapping has unsupported fields: {unknown}",
-            )
-        author = mapped.get("author")
-        if author is not None:
-            author_error = _author_object_error(author)
-            if author_error is not None:
-                raise PublicationError(
-                    PublicationBlockerKind.NEEDS_CONFIGURATION,
-                    "target_mapping_invalid",
-                    f"Blog target mapping {author_error}",
-                )
-            conflicting_author_fields = sorted(
-                field
-                for field in LEGACY_AUTHOR_FIELDS
-                if field in mapped
-            )
-            if conflicting_author_fields:
-                raise PublicationError(
-                    PublicationBlockerKind.NEEDS_CONFIGURATION,
-                    "target_mapping_invalid",
-                    (
-                        "Blog target mapping author cannot be combined with legacy "
-                        f"author fields: {conflicting_author_fields}"
-                    ),
-                )
-        author_name = mapped.get("authorName")
-        if author is None and (
-            not isinstance(author_name, str) or not author_name.strip()
-        ):
-            raise PublicationError(
-                PublicationBlockerKind.NEEDS_CONFIGURATION,
-                "target_mapping_invalid",
-                "Blog target mapping requires author or a non-empty authorName",
-            )
-        for field in (
-            "authorSlug",
-            "authorTitle",
-            "orgSlug",
-            "orgName",
-            "category",
-        ):
-            value = mapped.get(field)
-            if value is not None and not isinstance(value, str):
-                raise PublicationError(
-                    PublicationBlockerKind.NEEDS_CONFIGURATION,
-                    "target_mapping_invalid",
-                    f"Blog target mapping field {field} must be a string",
-                )
-        if mapped.get("postType") not in (None, "article", "opinion"):
-            raise PublicationError(
-                PublicationBlockerKind.NEEDS_CONFIGURATION,
-                "target_mapping_invalid",
-                "Blog target mapping postType must be article or opinion",
-            )
-        if "featured" in mapped and not isinstance(mapped["featured"], bool):
-            raise PublicationError(
-                PublicationBlockerKind.NEEDS_CONFIGURATION,
-                "target_mapping_invalid",
-                "Blog target mapping featured must be boolean",
-            )
-        tags = mapped.get("tags")
-        if tags is not None and (
-            not isinstance(tags, list)
-            or len(tags) > 12
-            or not all(isinstance(tag, str) and tag.strip() for tag in tags)
-        ):
-            raise PublicationError(
-                PublicationBlockerKind.NEEDS_CONFIGURATION,
-                "target_mapping_invalid",
-                "Blog target mapping tags must contain at most 12 non-empty strings",
-            )
-        return dict(mapped)
 
     def validate_request(self, request: dict[str, Any]) -> None:
         self._api_key()
@@ -208,6 +101,14 @@ class LsforumContentApiAdapter:
                 "publication_request_invalid",
                 "Blog content must be non-empty Markdown",
             )
+        try:
+            validate_publication_fields(request.get("publication_fields"))
+        except BlogFieldError as error:
+            raise PublicationError(
+                PublicationBlockerKind.PERMANENT_FAILURE,
+                "publication_request_invalid",
+                str(error),
+            ) from error
         images = request.get("images")
         if not isinstance(images, list) or not all(
             isinstance(url, str) and url.startswith("https://") for url in images
@@ -259,28 +160,22 @@ class LsforumContentApiAdapter:
         existing = self._get_slug(str(request["slug"]), preflight=True)
         if existing is not None:
             return self._recovered_response(request, existing)
-        target = request["target"]
-        if not isinstance(target, dict) or not isinstance(
-            target.get("mapped_fields"), dict
-        ):
+        try:
+            publication_fields = validate_publication_fields(
+                request.get("publication_fields")
+            )
+        except BlogFieldError as error:
             raise PublicationError(
                 PublicationBlockerKind.PERMANENT_FAILURE,
                 "publication_request_invalid",
-                "Mapped target is invalid",
-            )
-        mapped_fields = dict(target["mapped_fields"])
-        mapped_fields.pop("authorExternalId", None)
-        author = mapped_fields.get("author")
-        if isinstance(author, dict) and "externalId" in author:
-            current_author = dict(author)
-            current_author.pop("externalId", None)
-            mapped_fields["author"] = current_author
+                str(error),
+            ) from error
         payload = {
             "title": request["title"],
             "content": request["body_markdown"],
             "slug": request["slug"],
             "status": "published",
-            **mapped_fields,
+            **publication_fields,
         }
         if request.get("cover_image") is not None:
             payload["image"] = request["cover_image"]
@@ -604,19 +499,13 @@ class LsforumContentApiAdapter:
                 "blog_response_invalid",
                 "Blog lookup response must be an object",
             )
-        target = request.get("target")
-        mapped_fields = (
-            target.get("mapped_fields") if isinstance(target, dict) else None
-        )
+        publication_fields = request.get("publication_fields")
         expected_author = (
-            mapped_fields.get("authorName") if isinstance(mapped_fields, dict) else None
+            publication_fields["author"].get("name")
+            if isinstance(publication_fields, dict)
+            and isinstance(publication_fields.get("author"), dict)
+            else None
         )
-        if (
-            expected_author is None
-            and isinstance(mapped_fields, dict)
-            and isinstance(mapped_fields.get("author"), dict)
-        ):
-            expected_author = mapped_fields["author"].get("name")
         observed_author = existing_body.get("authorName")
         if observed_author is None and isinstance(existing_body.get("author"), dict):
             observed_author = existing_body["author"].get("name")

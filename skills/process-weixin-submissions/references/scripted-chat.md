@@ -58,7 +58,7 @@ Use a text message followed immediately by one Official Account article:
   {
     "message_id": "message-1",
     "kind": "text",
-    "text": "#投稿\n目标: author-id\n要求:\n可选的多行改写要求"
+    "text": "#投稿\nauthor.name: Public author name\npostType: opinion\ncategory: AI\ntags: Kimi, AI\nfeatured: false\n洗稿指令:\n可选的多行洗稿指令"
   },
   {
     "message_id": "message-2",
@@ -75,6 +75,8 @@ Use a text message followed immediately by one Official Account article:
 ]
 ```
 
-The task header recognizes `目标`, optional `文章数: 1`, and optional `要求`. Requirements consume the remainder of the message. Omitted or empty requirements select default mode; scripted generation still emits a validation placeholder, while the real Codex generator applies the active versioned default prompt. Unknown or duplicate control fields, missing targets, non-adjacent articles, unsupported message kinds, and article counts other than one create independent `needs_input` tasks.
+The task header requires `author.name`. It may also use `author.slug`, `author.title`, `author.orgSlug`, `orgSlug`, `orgName`, `postType`, `category`, `tags`, and `featured`, plus local `文章数: 1` and optional `洗稿指令`. Nested Blog fields use dotted paths; `tags` is comma-separated, `featured` is `true` or `false`, and `postType` is `article` or `opinion`. `洗稿指令` consumes the remainder of the message and should therefore be last. Omitted or empty instructions select default mode.
+
+The parser rejects old `目标`/`要求` fields, unknown or duplicate fields, invalid Blog values, and workflow-owned Blog fields such as `title`, `content`, `image`, `slug`, `sourceUrl`, and `status`. Missing `author.name`, non-adjacent articles, unsupported message kinds, and article counts other than one create independent `needs_input` tasks. Scripted generation emits a validation placeholder; the real Codex generator applies the active versioned default prompt.
 
 `scripted_capture` is a deterministic development adapter, not extra syntax that a WeChat sender must type. See [scripted-capture.md](scripted-capture.md) for media fixtures, evidence guarantees, and limitations. A legacy fixture with only `body`, optional `source_url`, and an empty `images` array remains accepted for existing core tests; new fixtures should use `scripted_capture`.

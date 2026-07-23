@@ -8,6 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from .blog_fields import BlogFieldError, validate_publication_fields
 from .blob_upload import BlobUploadError, ImageUploader, validate_image_bytes
 from .rewrite import RewriteArtifact, load_rewrite_artifact
 from .schema_validation import (
@@ -33,8 +34,6 @@ class PublicationAdapter(Protocol):
 
     @property
     def destination_id(self) -> str: ...
-
-    def map_target(self, source_id: str) -> dict[str, Any]: ...
 
     def validate_request(self, request: dict[str, Any]) -> None: ...
 
@@ -95,9 +94,6 @@ class FakePublicationAdapter:
     @property
     def destination_id(self) -> str:
         return self.directory.resolve().as_uri()
-
-    def map_target(self, source_id: str) -> dict[str, Any]:
-        return {"authorName": f"fake-author:{source_id}"}
 
     def validate_request(self, request: dict[str, Any]) -> None:
         return
@@ -205,6 +201,12 @@ def publish_rewrite(
     target_id = task["target_id"]
     if not isinstance(target_id, str):
         raise WorkflowError(f"Task {task_id} has no target ID")
+    try:
+        publication_fields = validate_publication_fields(task.get("publication_fields"))
+    except BlogFieldError as error:
+        raise WorkflowError(
+            f"Task {task_id} has invalid Blog publication fields: {error}"
+        ) from error
     artifact = load_rewrite_artifact(task_directory, target_id, task["requirements"])
     image_plan: dict[str, Any] | None = None
     if policy.requires_uploader:
@@ -306,6 +308,7 @@ def publish_rewrite(
         publication_directory,
         publication,
         artifact,
+        publication_fields,
         publication_body,
         run_id,
         adapter,
@@ -321,6 +324,7 @@ def _prepare_and_execute_publication(
     publication_directory: Path,
     publication: dict[str, Any],
     artifact: RewriteArtifact,
+    publication_fields: dict[str, Any],
     publication_body: str,
     run_id: str,
     adapter: PublicationAdapter,
@@ -335,6 +339,7 @@ def _prepare_and_execute_publication(
         request = _request(
             publication,
             artifact,
+            publication_fields,
             publication_body,
             adapter,
             image_urls=image_urls,
@@ -424,6 +429,7 @@ def resume_planned_image_publication(
         artifact = load_rewrite_artifact(
             task_directory, str(task["target_id"]), task["requirements"]
         )
+        publication_fields = validate_publication_fields(task.get("publication_fields"))
         try:
             uploaded = _upload_planned_images(
                 task_directory,
@@ -470,6 +476,7 @@ def resume_planned_image_publication(
             publication_directory,
             publication,
             artifact,
+            publication_fields,
             publication_body,
             run_id,
             adapter,
@@ -654,6 +661,7 @@ def _complete_publication_attempt(
 def _request(
     publication: dict[str, Any],
     artifact: RewriteArtifact,
+    publication_fields: dict[str, Any],
     publication_body: str,
     adapter: PublicationAdapter,
     *,
@@ -666,10 +674,7 @@ def _request(
         "operation": "publish_post",
         "publication_id": publication["publication_id"],
         "slug": publication["slug"],
-        "target": {
-            "source_id": artifact.target_id,
-            "mapped_fields": adapter.map_target(artifact.target_id),
-        },
+        "publication_fields": validate_publication_fields(publication_fields),
         "title": artifact.title,
         "body_markdown": publication_body,
         "images": list(image_urls or []),
@@ -1228,10 +1233,9 @@ def _validate_request_identity(
             if isinstance(expected_cover_value, str)
             else None
         )
-    target = request.get("target")
-    source_id = target.get("source_id") if isinstance(target, dict) else None
     if (
-        source_id != artifact.target_id
+        request.get("publication_fields")
+        != validate_publication_fields(task.get("publication_fields"))
         or request.get("title") != artifact.title
         or request.get("body_markdown") != expected_body
         or request.get("images") != expected_images

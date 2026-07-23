@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .blog_fields import BlogFieldError, assign_blog_field, parse_blog_field
 from .storage import WorkflowError
 
 
@@ -35,6 +36,7 @@ class Submission:
     window_id: str
     header_text: str
     target_id: str
+    publication_fields: dict[str, Any]
     requirements: str | None
     title: str
     capture: CaptureInput
@@ -43,6 +45,7 @@ class Submission:
 @dataclass(frozen=True)
 class TaskHeader:
     target_id: str
+    publication_fields: dict[str, Any]
     requirements: str | None
     article_count: int
 
@@ -70,6 +73,7 @@ def parse_task_header(text: str) -> TaskHeader:
         )
 
     target_id: str | None = None
+    publication_fields: dict[str, Any] = {}
     requirements: str | None = None
     article_count = 1
     seen_fields: set[str] = set()
@@ -83,12 +87,6 @@ def parse_task_header(text: str) -> TaskHeader:
                 target_id,
             )
         field, value = (part.strip() for part in line.split(":", 1))
-        if field not in ("目标", "要求", "文章数"):
-            raise TaskHeaderError(
-                "unknown_control_field",
-                f"Unknown task-header field: {field}",
-                target_id,
-            )
         if field in seen_fields:
             raise TaskHeaderError(
                 "duplicate_control_field",
@@ -96,9 +94,6 @@ def parse_task_header(text: str) -> TaskHeader:
                 target_id,
             )
         seen_fields.add(field)
-        if field == "目标":
-            target_id = value
-            continue
         if field == "文章数":
             try:
                 article_count = int(value)
@@ -115,17 +110,25 @@ def parse_task_header(text: str) -> TaskHeader:
                     target_id,
                 )
             continue
-        if field == "要求":
+        if field == "洗稿指令":
             first_line = value
             remainder = "\n".join(lines[index + 1 :]).strip()
             requirements = "\n".join(part for part in (first_line, remainder) if part) or None
             break
+        try:
+            path, parsed_value = parse_blog_field(field, value)
+            assign_blog_field(publication_fields, path, parsed_value)
+        except BlogFieldError as error:
+            raise TaskHeaderError(error.reason, str(error), target_id) from error
+        author = publication_fields.get("author")
+        if isinstance(author, dict) and isinstance(author.get("name"), str):
+            target_id = author["name"]
 
     if not target_id:
         raise TaskHeaderError(
-            "missing_target", "Task header is missing a non-empty target"
+            "missing_author_name", "Task header requires a non-empty author.name"
         )
-    return TaskHeader(target_id, requirements, article_count)
+    return TaskHeader(target_id, publication_fields, requirements, article_count)
 
 
 def parse_submission_messages(messages_value: object, window_id: str) -> Submission:
@@ -212,6 +215,7 @@ def parse_submission_messages(messages_value: object, window_id: str) -> Submiss
         window_id=window_id,
         header_text=header_text,
         target_id=task_header.target_id,
+        publication_fields=task_header.publication_fields,
         requirements=task_header.requirements,
         title=title,
         capture=capture,

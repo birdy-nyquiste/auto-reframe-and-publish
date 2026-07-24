@@ -681,6 +681,15 @@ def _run_candidates(
         if task_id not in created_task_ids
     ]
     task_results = [result_by_task[task_id] for task_id in ordered_result_ids]
+    missing_capabilities = [
+        capability
+        for capability in MISSING_CAPABILITIES
+        if not (
+            capability == "real Agent rewrite generation"
+            and rewrite_generator is not None
+            and rewrite_generator.generator_id == "running_agent_v1"
+        )
+    ]
     report_path = run_directory / "report.md"
     write_text(
         report_path,
@@ -692,6 +701,7 @@ def _run_candidates(
             publication_selection,
             image_policy.value,
             recovered_run_ids,
+            missing_capabilities,
         ),
     )
     run_record["completed_at"] = utc_now()
@@ -708,15 +718,7 @@ def _run_candidates(
         "publication_image_policy": image_policy.value,
         "report_path": str(report_path.resolve()),
         "validation_scope": VALIDATION_SCOPE,
-        "missing_capabilities": [
-            capability
-            for capability in MISSING_CAPABILITIES
-            if not (
-                capability == "real Agent rewrite generation"
-                and rewrite_generator is not None
-                and rewrite_generator.generator_id == "running_agent_v1"
-            )
-        ],
+        "missing_capabilities": missing_capabilities,
     }
 
 
@@ -1262,6 +1264,7 @@ def _render_report(
     publication_selection: str,
     publication_image_policy: str,
     recovered_run_ids: list[str],
+    missing_capabilities: list[str],
 ) -> str:
     lines = [
         f"# Run {run_id}",
@@ -1273,7 +1276,7 @@ def _render_report(
         f"- Publication image policy: {publication_image_policy}",
         f"- Recovered runs: {', '.join(recovered_run_ids) if recovered_run_ids else 'none'}",
         f"- Validation scope: {VALIDATION_SCOPE}",
-        f"- Not validated: {', '.join(MISSING_CAPABILITIES)}",
+        f"- Not validated: {', '.join(missing_capabilities) or 'none'}",
         "",
         "## Task results",
         "",

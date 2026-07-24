@@ -417,6 +417,10 @@ output_path.write_text(
         self.assertIn("## 事实与归因", prompt)
         self.assertIn("这是通过当前 Mac 微信复制取得的正文。", prompt)
         self.assertNotIn("real Agent rewrite generation", result["missing_capabilities"])
+        self.assertNotIn(
+            "real Agent rewrite generation",
+            Path(result["report_path"]).read_text("utf-8"),
+        )
 
     def test_macos_codex_runtime_failure_is_retryable(self) -> None:
         self.initialize()

@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
+from .blob_upload import FakePublicBlobUploader, ImageUploader, VercelPublicBlobUploader
 from .capture import (
     CaptureRejected,
     capture_raw_evidence,
@@ -19,9 +20,8 @@ from .publication import (
     resume_planned_image_publication,
     resume_ready_publications,
 )
-from .blob_upload import FakePublicBlobUploader, ImageUploader, VercelPublicBlobUploader
 from .lsforum_blog import LsforumPublicationAdapter
-from .retry_policy import retry_budget
+from .retry_policy import recoverable_permanent_failure_budget, retry_budget
 from .rewrite import (
     RewriteGenerator,
     RewriteRejected,
@@ -503,6 +503,7 @@ def _run_candidates(
         if any(candidate.submission is not None for candidate in candidates):
             _maybe_interrupt(simulate_interruption_after, "task_created")
 
+        _repair_stale_ready_rewrite_blockers(repository, run_id)
         executable = _load_executable_tasks(repository)
         for task_id, task_record, submission in executable:
             milestone_before = str(task_record["milestone"])
@@ -626,6 +627,45 @@ def _run_candidates(
             )
         ],
     }
+
+
+def _repair_stale_ready_rewrite_blockers(repository: Path, run_id: str) -> None:
+    for task_directory in sorted((repository / "tasks").iterdir()):
+        if not task_directory.is_dir():
+            continue
+        task_record = load_record("task", task_directory / "task.json")
+        blocker = task_record["blocker"]
+        if (
+            task_record["milestone"] != "rewrite_artifact_ready"
+            or not isinstance(blocker, dict)
+            or blocker.get("kind") not in ("retry_pending", "retry_exhausted")
+            or blocker.get("operation") != "generate_rewrite"
+        ):
+            continue
+        intake = read_json(task_directory / "raw" / "intake.json")
+        submission = parse_submission_messages(
+            intake.get("messages"),
+            str(intake.get("window_id", task_record["created_in_run"])),
+        )
+        load_rewrite_artifact(
+            task_directory,
+            submission.target_id,
+            submission.requirements,
+        )
+        previous_blocker = dict(blocker)
+        task_record["blocker"] = None
+        task_record["updated_at"] = utc_now()
+        commit_task_state(
+            task_directory,
+            task_record,
+            run_id,
+            "blocker_changed",
+            details={
+                "reason": "cleared_stale_rewrite_retry_after_validated_commit",
+                "blocker_from": previous_blocker,
+                "blocker_to": None,
+            },
+        )
 
 
 def _load_executable_tasks(
@@ -772,7 +812,7 @@ def _process_task(
                 error_category=error.category,
                 error_code=error.code,
                 message=str(error),
-                retryable=False,
+                retryable=error.retryable,
             )
             return False
         except (SchemaValidationError, WorkflowError) as error:
@@ -898,8 +938,14 @@ def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
     task_directory = repository / "tasks" / task_id
     task_record = load_record("task", task_directory / "task.json")
     blocker = task_record["blocker"]
-    if not isinstance(blocker, dict) or blocker.get("kind") != "retry_exhausted":
-        raise WorkflowError(f"Task {task_id} is not retry_exhausted")
+    if not isinstance(blocker, dict):
+        raise WorkflowError(f"Task {task_id} is not retryable")
+    if blocker.get("kind") == "retry_exhausted":
+        budget = blocker["retry_budget"]
+    else:
+        budget = recoverable_permanent_failure_budget(blocker)
+        if budget is None:
+            raise WorkflowError(f"Task {task_id} is not retryable")
 
     started_at = utc_now()
     run_id = new_id("run")
@@ -930,7 +976,7 @@ def enable_retry(repository: Path, task_id: str) -> dict[str, object]:
         "error_category": blocker["error_category"],
         "error_code": blocker["error_code"],
         "attempts_used": 0,
-        "retry_budget": blocker["retry_budget"],
+        "retry_budget": budget,
         "retry_generation": task_record["retry_generation"],
     }
     task_record["blocker"] = next_blocker

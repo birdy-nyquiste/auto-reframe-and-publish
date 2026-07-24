@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .retry_policy import recoverable_permanent_failure_budget
 from .schema_validation import (
     SchemaValidationError,
     allowed_transitions,
@@ -102,6 +103,7 @@ def commit_task_milestone(
             f"Illegal task transition: {current} -> {next_milestone}"
         )
     task_record["milestone"] = next_milestone
+    task_record["blocker"] = None
     task_record["updated_at"] = utc_now()
     commit_task_state(
         task_directory,
@@ -215,23 +217,27 @@ def _validate_state_event(
             next_blocker = state_after["blocker"]
             if (
                 not isinstance(previous_blocker, dict)
-                or previous_blocker.get("kind") != "retry_exhausted"
                 or not isinstance(next_blocker, dict)
                 or next_blocker.get("kind") != "retry_pending"
             ):
                 raise SchemaValidationError(
-                    "retry_enabled requires retry_exhausted -> retry_pending"
+                    "retry_enabled requires a retryable blocker -> retry_pending"
                 )
             if next_blocker["attempts_used"] != 0:
                 raise SchemaValidationError(
                     "retry_enabled must reset attempts_used to zero"
                 )
-            stable_retry_fields = (
-                "operation",
-                "error_category",
-                "error_code",
-                "retry_budget",
-            )
+            if previous_blocker.get("kind") == "retry_exhausted":
+                expected_budget = previous_blocker["retry_budget"]
+            else:
+                expected_budget = recoverable_permanent_failure_budget(
+                    previous_blocker
+                )
+                if expected_budget is None:
+                    raise SchemaValidationError(
+                        "retry_enabled cannot recover this permanent failure"
+                    )
+            stable_retry_fields = ("operation", "error_category", "error_code")
             changed_retry_fields = [
                 field
                 for field in stable_retry_fields
@@ -241,6 +247,8 @@ def _validate_state_event(
                 raise SchemaValidationError(
                     f"retry_enabled changed retry fields {changed_retry_fields}"
                 )
+            if next_blocker["retry_budget"] != expected_budget:
+                raise SchemaValidationError("retry_enabled changed retry budget")
         elif next_generation != previous_generation:
             raise SchemaValidationError(
                 f"Event {event_type} cannot change retry_generation"

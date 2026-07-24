@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import base64
-import json
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -416,3 +416,222 @@ output_path.write_text(
         self.assertIn("## 事实与归因", prompt)
         self.assertIn("这是通过当前 Mac 微信复制取得的正文。", prompt)
         self.assertNotIn("real Agent rewrite generation", result["missing_capabilities"])
+
+    def test_macos_codex_runtime_failure_is_retryable(self) -> None:
+        self.initialize()
+        self.write_window()
+        fake_codex = self.root / "failing-codex"
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import sys
+
+sys.stderr.write("temporary Codex runtime failure")
+raise SystemExit(1)
+""",
+            encoding="utf-8",
+        )
+        fake_codex.chmod(0o755)
+
+        completed = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--macos-window",
+            self.window,
+            "--codex-command",
+            fake_codex,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = cast(dict[str, Any], json.loads(completed.stdout))
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        self.assertEqual(result["task_results"][0]["status"], "retry_pending")
+        self.assertEqual(task["milestone"], "structured_source_ready")
+        self.assertEqual(task["blocker"]["kind"], "retry_pending")
+        self.assertEqual(task["blocker"]["error_code"], "codex_generation_failed")
+        self.assertEqual(task["blocker"]["attempts_used"], 1)
+        self.assertEqual(task["blocker"]["retry_budget"], 2)
+        self.assertFalse((task_directory / "rewrite" / "content.md").exists())
+
+        recovery_window = self.root / "recovery-window.json"
+        recovery_window.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "adapter": "macos_computer_use_v1",
+                    "conversation": "file-transfer-assistant",
+                    "previous_marker_id": CURRENT_MARKER,
+                    "current_marker_id": WRONG_MARKER,
+                    "messages": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+output_path.write_text(
+    json.dumps(
+        {
+            "title": "重试后成功的文章",
+            "markdown": "# 重试后成功的文章\\n\\n运行时恢复后生成成功。\\n",
+        },
+        ensure_ascii=False,
+    ),
+    encoding="utf-8",
+)
+""",
+            encoding="utf-8",
+        )
+        recovered = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--macos-window",
+            recovery_window,
+            "--codex-command",
+            fake_codex,
+        )
+
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        recovery_result = cast(dict[str, Any], json.loads(recovered.stdout))
+        recovered_task = json.loads(
+            (task_directory / "task.json").read_text("utf-8")
+        )
+        self.assertEqual(
+            recovery_result["task_results"][0]["status"],
+            "rewrite_artifact_ready",
+        )
+        self.assertEqual(recovered_task["milestone"], "rewrite_artifact_ready")
+        self.assertIsNone(recovered_task["blocker"])
+
+        stale_blocker = {
+            "kind": "retry_pending",
+            "operation": "generate_rewrite",
+            "error_category": "rewrite_generation",
+            "error_code": "codex_generation_failed",
+            "attempts_used": 1,
+            "retry_budget": 2,
+            "retry_generation": 0,
+        }
+        state_event_path = next(
+            path
+            for path in reversed(sorted((task_directory / "events").glob("*.json")))
+            if (
+                json.loads(path.read_text("utf-8")).get("state_after") or {}
+            ).get("milestone")
+            == "rewrite_artifact_ready"
+        )
+        state_event = json.loads(state_event_path.read_text("utf-8"))
+        state_event["state_after"]["blocker"] = stale_blocker
+        state_event_path.write_text(
+            json.dumps(state_event, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        recovered_task["blocker"] = stale_blocker
+        (task_directory / "task.json").write_text(
+            json.dumps(recovered_task, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        repair_window = self.root / "repair-window.json"
+        repair_window.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "adapter": "macos_computer_use_v1",
+                    "conversation": "file-transfer-assistant",
+                    "previous_marker_id": WRONG_MARKER,
+                    "current_marker_id": "marker_" + "d" * 32,
+                    "messages": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        repaired = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--macos-window",
+            repair_window,
+            "--codex-command",
+            fake_codex,
+        )
+
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+        repaired_task = json.loads(
+            (task_directory / "task.json").read_text("utf-8")
+        )
+        self.assertEqual(repaired_task["milestone"], "rewrite_artifact_ready")
+        self.assertIsNone(repaired_task["blocker"])
+        last_event = json.loads(
+            sorted((task_directory / "events").glob("*.json"))[-1].read_text(
+                "utf-8"
+            )
+        )
+        self.assertEqual(last_event["type"], "blocker_changed")
+        self.assertEqual(
+            last_event["details"]["reason"],
+            "cleared_stale_rewrite_retry_after_validated_commit",
+        )
+
+    def test_retry_upgrades_legacy_permanent_codex_runtime_failure(self) -> None:
+        self.initialize()
+        self.write_window()
+        completed = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--macos-window",
+            self.window,
+            "--rewrite-generator",
+            "scripted",
+            "--scripted-rewrite-outcome",
+            "generation_failure",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = cast(dict[str, Any], json.loads(completed.stdout))
+        task_id = result["task_ids"][0]
+        task_directory = self.repository / "tasks" / task_id
+        event_path = sorted((task_directory / "events").glob("*.json"))[-1]
+        event = json.loads(event_path.read_text("utf-8"))
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        for blocker in (
+            event["details"]["blocker_to"],
+            event["state_after"]["blocker"],
+            task["blocker"],
+        ):
+            blocker["error_code"] = "codex_generation_failed"
+        event["details"]["error_code"] = "codex_generation_failed"
+        event_path.write_text(
+            json.dumps(event, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (task_directory / "task.json").write_text(
+            json.dumps(task, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        enabled = run_cli(
+            "retry",
+            "--repository",
+            self.repository,
+            "--task-id",
+            task_id,
+        )
+
+        self.assertEqual(enabled.returncode, 0, enabled.stderr)
+        retried = json.loads((task_directory / "task.json").read_text("utf-8"))
+        self.assertEqual(retried["blocker"]["kind"], "retry_pending")
+        self.assertEqual(retried["blocker"]["attempts_used"], 0)
+        self.assertEqual(retried["blocker"]["retry_budget"], 2)
+        self.assertEqual(retried["retry_generation"], 1)

@@ -31,12 +31,19 @@ An explicitly authorized `auto` run also reconciles unfinished publication aggre
 
 ## Retry
 
-A normal run executes content tasks with `retry_pending`, skips `retry_exhausted`, and skips `permanent_failure`. Use:
+A normal run executes content tasks with `retry_pending`, skips `retry_exhausted`, and skips `permanent_failure`.
+
+Codex process startup failures and timeouts are retryable rewrite-generation
+errors with a bounded budget. Repositories created before this classification
+may contain those exact errors as `permanent_failure`; the explicit retry
+command safely upgrades only the allowlisted Codex startup/timeout codes.
+
+Use:
 
 ```text
 python scripts/process_weixin_submissions.py retry \
   --repository <task-repository> \
-  --task-id <retry-exhausted-task-id>
+  --task-id <retryable-task-id>
 ```
 
 This creates an auditable retry run, increments the task retry generation, and restores `retry_pending`. It does not publish. Publication unknown-outcome resolution requires a future explicit workflow and must not be forced through content retry.

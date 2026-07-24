@@ -203,6 +203,7 @@ class CodexCliGenerator:
                         detail,
                         category="rewrite_generation",
                         phase="generation",
+                        retryable=True,
                     )
                 response = json.loads(response_path.read_text(encoding="utf-8"))
         except RewriteRejected:
@@ -213,6 +214,7 @@ class CodexCliGenerator:
                 "Codex generation timed out",
                 category="rewrite_generation",
                 phase="generation",
+                retryable=True,
             ) from error
         except (OSError, json.JSONDecodeError, KeyError) as error:
             raise RewriteRejected(
@@ -257,11 +259,20 @@ class CodexCliGenerator:
 
 
 class RewriteRejected(WorkflowError):
-    def __init__(self, code: str, message: str, *, category: str, phase: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        category: str,
+        phase: str,
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.category = category
         self.phase = phase
+        self.retryable = retryable
 
 
 def generate_validated_rewrite(

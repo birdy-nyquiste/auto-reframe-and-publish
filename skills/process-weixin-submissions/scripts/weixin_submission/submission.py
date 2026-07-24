@@ -80,13 +80,20 @@ def parse_task_header(text: str) -> TaskHeader:
     for index, line in enumerate(lines[1:], start=1):
         if not line.strip():
             continue
-        if ":" not in line:
+        separator_positions = [
+            position
+            for separator in (":", "：")
+            if (position := line.find(separator)) >= 0
+        ]
+        if not separator_positions:
             raise TaskHeaderError(
                 "unknown_control_field",
                 f"Unknown task-header line: {line}",
                 target_id,
             )
-        field, value = (part.strip() for part in line.split(":", 1))
+        separator_position = min(separator_positions)
+        field = line[:separator_position].strip()
+        value = line[separator_position + 1 :].strip()
         if field in seen_fields:
             raise TaskHeaderError(
                 "duplicate_control_field",

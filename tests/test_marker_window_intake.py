@@ -223,7 +223,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 {
                     "message_id": "empty-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: author-empty\n洗稿指令:",
+                    "text": "#投稿\nauthor.name： author-empty\n洗稿指令：",
                 },
                 article("empty-article", "空要求"),
                 {

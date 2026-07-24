@@ -74,6 +74,9 @@ Do not scan or import messages before this baseline.
 
 Marker messages themselves must not appear in `messages`. Every `message_id` must be non-empty and unique within the window. The `scripted_capture` field name is not used for real captures.
 
+Task-header field lines accept either the half-width separator `:` or the
+full-width separator `：`. Keep the field names themselves exact.
+
 For a WeChat image saved under the repository's `tmp/` directory, use a staged media item rather than embedding base64 in the captured window:
 
 ```json

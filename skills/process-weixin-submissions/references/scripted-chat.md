@@ -75,7 +75,7 @@ Use a text message followed immediately by one Official Account article:
 ]
 ```
 
-The task header requires `author.name`. It may also use `author.slug`, `author.title`, `author.orgSlug`, `orgSlug`, `orgName`, `postType`, `category`, `tags`, and `featured`, plus local `文章数: 1` and optional `洗稿指令`. Nested Blog fields use dotted paths; `tags` is comma-separated, `featured` is `true` or `false`, and `postType` is `article` or `opinion`. `洗稿指令` consumes the remainder of the message and should therefore be last. Omitted or empty instructions select default mode.
+The task header requires `author.name`. It may also use `author.slug`, `author.title`, `author.orgSlug`, `orgSlug`, `orgName`, `postType`, `category`, `tags`, and `featured`, plus local `文章数: 1` and optional `洗稿指令`. Field lines accept either the half-width separator `:` or the full-width separator `：`; field names remain exact. Nested Blog fields use dotted paths; `tags` is comma-separated, `featured` is `true` or `false`, and `postType` is `article` or `opinion`. `洗稿指令` consumes the remainder of the message and should therefore be last. Omitted or empty instructions select default mode.
 
 The parser rejects old `目标`/`要求` fields, unknown or duplicate fields, invalid Blog values, and workflow-owned Blog fields such as `title`, `content`, `image`, `slug`, `sourceUrl`, and `status`. Missing `author.name`, non-adjacent articles, unsupported message kinds, and article counts other than one create independent `needs_input` tasks. Scripted generation emits a validation placeholder; the real Codex generator applies the active versioned default prompt.
 

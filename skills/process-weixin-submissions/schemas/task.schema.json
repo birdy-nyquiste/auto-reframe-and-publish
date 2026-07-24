@@ -120,7 +120,12 @@
       "allowed_blockers": ["none", "permanent_failure"]
     },
     "structured_source_ready": {
-      "allowed_blockers": ["none", "permanent_failure"]
+      "allowed_blockers": [
+        "none",
+        "retry_pending",
+        "retry_exhausted",
+        "permanent_failure"
+      ]
     },
     "rewrite_artifact_ready": {
       "allowed_blockers": [

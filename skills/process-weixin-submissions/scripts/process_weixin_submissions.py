@@ -95,7 +95,10 @@ def create_parser() -> argparse.ArgumentParser:
     status.add_argument("--repository", type=Path, required=True)
     status.add_argument("--disk-warning-bytes", type=int)
 
-    retry = subparsers.add_parser("retry", help="Re-enable a retry-exhausted task.")
+    retry = subparsers.add_parser(
+        "retry",
+        help="Re-enable an exhausted or recoverable legacy runtime failure.",
+    )
     retry.add_argument("--repository", type=Path, required=True)
     retry.add_argument("--task-id", required=True)
 

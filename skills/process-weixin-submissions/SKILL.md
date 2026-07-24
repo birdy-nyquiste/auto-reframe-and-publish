@@ -12,7 +12,7 @@ Run this Skill only after an operator explicitly requests an operation. Never st
 - `initialize`: create the local task repository and establish a baseline marker without importing earlier chat history.
 - `run`: send one batch marker and process only the messages since the previous marker. Publication defaults to `none`; use `auto` only when the operator explicitly asks for automatic publication in this run.
 - `status`: inspect the repository without modifying it.
-- `retry`: explicitly re-enable one task whose typed blocker is `retry_exhausted`.
+- `retry`: explicitly re-enable one task whose typed blocker is `retry_exhausted`, or safely upgrade an allowlisted legacy Codex startup/timeout failure.
 - `publish`: explicitly publish one existing `rewrite_artifact_ready` task. The default image policy preserves the local-image safety block. Use `--image-policy omit` only when the operator explicitly authorizes a text-only public version, or `--image-policy upload` when the operator authorizes Public Blob upload and image publication. The rewrite Agent must explicitly select the cover with `--cover-image source-image-NNN.ext` (or deliberately omit the option for no cover).
 
 ## Execute the deterministic entrypoint

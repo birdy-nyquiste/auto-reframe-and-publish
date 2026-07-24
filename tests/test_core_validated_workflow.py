@@ -136,7 +136,7 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
         self,
     ) -> None:
         initialized = self.initialize()
-        self.assertEqual(initialized["validation_scope"], "ready")
+        self.assertEqual(initialized["validation_scope"], "core_validated")
         self.assertEqual(
             self.clipboard_record(),
             {"schema_version": 1, "owner_id": None, "text": ""},
@@ -252,25 +252,6 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
                 self.assertIn("writer lock is already held", result.stderr)
                 self.assertEqual(lock_path.read_bytes(), lock_bytes)
 
-    def test_status_reports_current_release_scope_for_an_older_repository(
-        self,
-    ) -> None:
-        self.initialize()
-        metadata_path = self.repository / "repository.json"
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        metadata["validation_scope"] = "core_validated"
-        historical_bytes = (
-            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n"
-        ).encode("utf-8")
-        metadata_path.write_bytes(historical_bytes)
-
-        status = run_cli("status", "--repository", self.repository)
-
-        self.assertEqual(status.returncode, 0, status.stderr)
-        result = cast(dict[str, Any], json.loads(status.stdout))
-        self.assertEqual(result["validation_scope"], "ready")
-        self.assertEqual(metadata_path.read_bytes(), historical_bytes)
-
     def test_historical_work_runs_first_and_one_failure_does_not_stop_new_tasks(
         self,
     ) -> None:
@@ -344,8 +325,7 @@ class CoreValidatedWorkflowTest(unittest.TestCase):
             {"schema_version": 1, "owner_id": None, "text": ""},
         )
         report = Path(second["report_path"]).read_text(encoding="utf-8")
-        self.assertIn("Validation scope: ready", report)
-        self.assertIn("Not validated: none", report)
+        self.assertIn("Validation scope: core_validated", report)
         self.assertIn(historical_task_id, report)
         self.assertIn("rewrite_artifact_ready", report)
         chat = json.loads(self.chat.read_text(encoding="utf-8"))

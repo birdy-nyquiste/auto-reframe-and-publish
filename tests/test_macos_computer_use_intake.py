@@ -376,6 +376,7 @@ output_path.write_text(
         {
             "title": "在当前 Mac 上跑通内容自动化",
             "markdown": "# 在当前 Mac 上跑通内容自动化\\n\\n这是一篇由运行 Agent 生成并通过确定性校验的文章。\\n",
+            "cover_image": None,
         },
         ensure_ascii=False,
     ),
@@ -482,6 +483,7 @@ output_path.write_text(
         {
             "title": "重试后成功的文章",
             "markdown": "# 重试后成功的文章\\n\\n运行时恢复后生成成功。\\n",
+            "cover_image": None,
         },
         ensure_ascii=False,
     ),

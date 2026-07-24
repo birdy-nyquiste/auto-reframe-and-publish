@@ -15,6 +15,7 @@ CLI = ROOT / "skills/process-weixin-submissions/scripts/process_weixin_submissio
 sys.path.insert(0, str(CLI.parent))
 
 from weixin_submission.blob_upload import (  # noqa: E402
+    BlobUploadError,
     FakePublicBlobUploader,
     UploadedImage,
 )
@@ -51,6 +52,24 @@ class InterruptAfterOneUpload:
 
     def accepts_public_url(self, url: str) -> bool:
         return self.inner.accepts_public_url(url)
+
+
+class MissingBlobConfiguration:
+    @property
+    def destination_id(self) -> str:
+        raise BlobUploadError(
+            "blob_store_id_invalid",
+            "Fixture Blob destination is not configured",
+            needs_configuration=True,
+        )
+
+    def upload(
+        self, source: Path, *, pathname: str, content_type: str
+    ) -> UploadedImage:
+        raise AssertionError("An invalid destination must not upload")
+
+    def accepts_public_url(self, url: str) -> bool:
+        return False
 
 
 def run_cli(*arguments: object) -> subprocess.CompletedProcess[str]:
@@ -160,6 +179,27 @@ class OptInPublicationTest(unittest.TestCase):
         self.append_submission("none")
         self.assert_content_only(self.run_without_publication("--publication", "none"))
 
+    def test_automatic_run_rejects_the_explicit_text_only_image_policy(self) -> None:
+        self.append_submission("auto-omit")
+
+        result = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--scripted-chat",
+            self.chat,
+            "--publication",
+            "auto",
+            "--image-policy",
+            "omit",
+            "--fake-blog-directory",
+            self.root / "fake-public-blog",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(list((self.repository / "tasks").iterdir()), [])
+        self.assertEqual(list((self.repository / "publications").iterdir()), [])
+
     def test_explicit_auto_creates_and_executes_an_independent_publication(
         self,
     ) -> None:
@@ -216,6 +256,242 @@ class OptInPublicationTest(unittest.TestCase):
             {"publication_confirmed": 1},
         )
 
+    def test_auto_upload_loads_explicit_env_file_without_requiring_images(
+        self,
+    ) -> None:
+        self.append_submission("auto-env")
+        fake_blog = self.root / "fake-public-blog"
+        env_file = self.root / ".env"
+        env_file.write_text(
+            "BLOB_READ_WRITE_TOKEN=fixture-token\n"
+            "BLOB_STORE_ID=store_FIXTURE123\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_without_publication(
+            "--publication",
+            "auto",
+            "--image-policy",
+            "upload",
+            "--env-file",
+            env_file,
+            "--fake-blog-directory",
+            fake_blog,
+        )
+
+        self.assertEqual(result["publication_image_policy"], "upload")
+        self.assertEqual(
+            result["publication_results"][0]["status"],
+            "publication_confirmed",
+        )
+        publication_id = result["publication_results"][0]["publication_id"]
+        publication = cast(
+            dict[str, Any],
+            json.loads(
+                (
+                    self.repository
+                    / "publications"
+                    / publication_id
+                    / "publication.json"
+                ).read_text("utf-8")
+            ),
+        )
+        self.assertEqual(
+            publication["image_plan"]["destination"],
+            "vercel-blob:public:store_FIXTURE123",
+        )
+        self.assertEqual(publication["image_plan"]["images"], [])
+
+    def test_explicit_auto_uploads_agent_selected_cover_in_same_run(self) -> None:
+        self.append_submission("auto-images")
+        chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
+        article = chat["messages"][-1]
+        article.pop("body")
+        article.pop("source_url")
+        article.pop("images")
+        article["scripted_capture"] = {
+            "clipboard_text": "Body with one captured image.",
+            "source_url": "https://example.com/auto-images",
+            "article_end_observed": True,
+            "all_static_images_captured": True,
+            "media": [
+                {
+                    "kind": "image",
+                    "mime_type": "image/png",
+                    "capture_method": "original_bytes",
+                    "bytes_base64": base64.b64encode(
+                        b"\x89PNG\r\n\x1a\nfixture-auto-image"
+                    ).decode("ascii"),
+                }
+            ],
+        }
+        self.chat.write_text(json.dumps(chat), encoding="utf-8")
+        fake_codex = self.root / "fake-codex-auto-image"
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+output_path.write_text(
+    json.dumps(
+        {
+            "title": "Article auto-images",
+            "markdown": "# Article auto-images\\n\\nBody.\\n\\n![Cover](source-image-001.png)\\n",
+            "cover_image": "source-image-001.png",
+        }
+    ),
+    encoding="utf-8",
+)
+""",
+            encoding="utf-8",
+        )
+        fake_codex.chmod(0o755)
+        fake_blog = self.root / "fake-public-blog"
+        fake_blob = self.root / "fake-public-blob"
+
+        completed = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--scripted-chat",
+            self.chat,
+            "--rewrite-generator",
+            "codex",
+            "--codex-command",
+            fake_codex,
+            "--publication",
+            "auto",
+            "--image-policy",
+            "upload",
+            "--fake-blob-directory",
+            fake_blob,
+            "--fake-blog-directory",
+            fake_blog,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = cast(dict[str, Any], json.loads(completed.stdout))
+        self.assertEqual(result["publication_image_policy"], "upload")
+        self.assertEqual(len(result["publication_results"]), 1)
+        publication_result = result["publication_results"][0]
+        self.assertEqual(publication_result["status"], "publication_confirmed")
+        publication_directory = (
+            self.repository
+            / "publications"
+            / publication_result["publication_id"]
+        )
+        publication = cast(
+            dict[str, Any],
+            json.loads((publication_directory / "publication.json").read_text("utf-8")),
+        )
+        request = cast(
+            dict[str, Any],
+            json.loads((publication_directory / "request.json").read_text("utf-8")),
+        )
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        manifest = cast(
+            dict[str, Any],
+            json.loads(
+                (task_directory / "rewrite" / "manifest.json").read_text("utf-8")
+            ),
+        )
+        self.assertEqual(
+            manifest["presentation"]["cover_image_source"],
+            "source-image-001.png",
+        )
+        self.assertEqual(publication["presentation"]["image_policy"], "upload")
+        self.assertEqual(
+            publication["presentation"]["cover_image_source"],
+            "source-image-001.png",
+        )
+        self.assertEqual(request["cover_image"], request["images"][0])
+        self.assertIn(request["images"][0], request["body_markdown"])
+        self.assertEqual(len(list((fake_blob / "objects").iterdir())), 1)
+        self.assertEqual(len(list((fake_blog / "posts").iterdir())), 1)
+
+    def test_auto_rejects_cover_name_the_agent_was_not_given(self) -> None:
+        self.append_submission("invalid-cover")
+        chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
+        article = chat["messages"][-1]
+        article.pop("body")
+        article.pop("source_url")
+        article.pop("images")
+        article["scripted_capture"] = {
+            "clipboard_text": "Body with one captured PNG.",
+            "source_url": "https://example.com/invalid-cover",
+            "article_end_observed": True,
+            "all_static_images_captured": True,
+            "media": [
+                {
+                    "kind": "image",
+                    "mime_type": "image/png",
+                    "capture_method": "original_bytes",
+                    "bytes_base64": base64.b64encode(
+                        b"\x89PNG\r\n\x1a\nfixture-invalid-cover"
+                    ).decode("ascii"),
+                }
+            ],
+        }
+        self.chat.write_text(json.dumps(chat), encoding="utf-8")
+        fake_codex = self.root / "fake-codex-invalid-cover"
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+output_path.write_text(
+    json.dumps(
+        {
+            "title": "Article invalid-cover",
+            "markdown": "# Article invalid-cover\\n\\n![Wrong](source-image-001.jpg)\\n",
+            "cover_image": "source-image-001.jpg",
+        }
+    ),
+    encoding="utf-8",
+)
+""",
+            encoding="utf-8",
+        )
+        fake_codex.chmod(0o755)
+        fake_blog = self.root / "fake-public-blog"
+        fake_blob = self.root / "fake-public-blob"
+
+        completed = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--scripted-chat",
+            self.chat,
+            "--rewrite-generator",
+            "codex",
+            "--codex-command",
+            fake_codex,
+            "--publication",
+            "auto",
+            "--image-policy",
+            "upload",
+            "--fake-blob-directory",
+            fake_blob,
+            "--fake-blog-directory",
+            fake_blog,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = cast(dict[str, Any], json.loads(completed.stdout))
+        self.assertEqual(result["task_results"][0]["status"], "permanent_failure")
+        self.assertEqual(
+            result["task_results"][0]["blocker_reason"],
+            "rewrite_candidate_invalid",
+        )
+        self.assertEqual(result["publication_results"], [])
+        self.assertEqual(list((self.repository / "publications").iterdir()), [])
+        self.assertFalse((fake_blob / "objects").exists())
+        self.assertFalse((fake_blog / "posts").exists())
+
     def test_one_publication_failure_does_not_stop_another(self) -> None:
         self.append_submission("first")
         self.append_submission("second")
@@ -245,6 +521,158 @@ class OptInPublicationTest(unittest.TestCase):
             ["permanent_failure", "publication_confirmed"],
         )
         self.assertEqual(len(list((fake_blog / "posts").glob("*.json"))), 1)
+
+    def test_image_plan_configuration_failure_is_a_publication_blocker(self) -> None:
+        self.append_submission("bad-blob-config")
+        generated = self.run_without_publication()
+        task_id = generated["task_ids"][0]
+
+        publication_id, result = publish_rewrite(
+            self.repository,
+            task_id,
+            "run_bad_blob_config",
+            FakePublicationAdapter(self.root / "fake-public-blog"),
+            image_policy="upload",
+            image_uploader=MissingBlobConfiguration(),
+        )
+
+        self.assertEqual(result["status"], "needs_configuration")
+        self.assertEqual(result["blocker_reason"], "blob_store_id_invalid")
+        publication = cast(
+            dict[str, Any],
+            json.loads(
+                (
+                    self.repository
+                    / "publications"
+                    / publication_id
+                    / "publication.json"
+                ).read_text("utf-8")
+            ),
+        )
+        self.assertEqual(publication["milestone"], "publication_created")
+        self.assertEqual(publication["blocker"]["kind"], "needs_configuration")
+        self.assertFalse((self.root / "fake-public-blog" / "posts").exists())
+
+    def test_invalid_image_plan_does_not_stop_the_next_automatic_publication(
+        self,
+    ) -> None:
+        self.append_submission("too-many-images")
+        self.append_submission("after-bad-images")
+        chat = cast(dict[str, Any], json.loads(self.chat.read_text("utf-8")))
+        first_article = chat["messages"][-3]
+        first_article.pop("body")
+        first_article.pop("source_url")
+        first_article.pop("images")
+        first_article["scripted_capture"] = {
+            "clipboard_text": "Body with too many referenced images.",
+            "source_url": "https://example.com/too-many-images",
+            "article_end_observed": True,
+            "all_static_images_captured": True,
+            "media": [
+                {
+                    "kind": "image",
+                    "mime_type": "image/png",
+                    "capture_method": "original_bytes",
+                    "bytes_base64": base64.b64encode(
+                        b"\x89PNG\r\n\x1a\n" + bytes([position])
+                    ).decode("ascii"),
+                }
+                for position in range(1, 22)
+            ],
+        }
+        self.chat.write_text(json.dumps(chat), encoding="utf-8")
+        fake_codex = self.root / "fake-codex-image-plan-isolation"
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+prompt = sys.stdin.read()
+output_path = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+if "Article too-many-images" in prompt:
+    title = "Article too-many-images"
+    images = "\\n\\n".join(
+        f"![Image {position}](source-image-{position:03d}.png)"
+        for position in range(1, 22)
+    )
+    markdown = f"# {title}\\n\\nBody.\\n\\n{images}\\n"
+else:
+    title = "Article after-bad-images"
+    markdown = f"# {title}\\n\\nBody.\\n"
+output_path.write_text(
+    json.dumps({"title": title, "markdown": markdown, "cover_image": None}),
+    encoding="utf-8",
+)
+""",
+            encoding="utf-8",
+        )
+        fake_codex.chmod(0o755)
+        fake_blog = self.root / "fake-public-blog"
+
+        completed = run_cli(
+            "run",
+            "--repository",
+            self.repository,
+            "--scripted-chat",
+            self.chat,
+            "--rewrite-generator",
+            "codex",
+            "--codex-command",
+            fake_codex,
+            "--publication",
+            "auto",
+            "--image-policy",
+            "upload",
+            "--fake-blob-directory",
+            self.root / "fake-public-blob",
+            "--fake-blog-directory",
+            fake_blog,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        result = cast(dict[str, Any], json.loads(completed.stdout))
+        self.assertEqual(
+            [item["status"] for item in result["publication_results"]],
+            ["permanent_failure", "publication_confirmed"],
+        )
+        self.assertEqual(
+            result["publication_results"][0]["blocker_reason"],
+            "publication_image_count_exceeded",
+        )
+        self.assertEqual(len(list((fake_blog / "posts").glob("*.json"))), 1)
+
+    def test_corrupt_planned_publication_is_isolated_during_automatic_recovery(
+        self,
+    ) -> None:
+        self.append_submission("corrupt-recovery")
+        self.run_without_publication()
+        corrupt = self.repository / "publications" / "publication_corrupt"
+        corrupt.mkdir()
+        (corrupt / "publication.json").write_text("{}\n", encoding="utf-8")
+
+        recovered = self.run_without_publication(
+            "--publication",
+            "auto",
+            "--image-policy",
+            "upload",
+            "--fake-blog-directory",
+            self.root / "fake-public-blog",
+            "--fake-blob-directory",
+            self.root / "fake-public-blob",
+        )
+
+        self.assertEqual(
+            recovered["publication_results"],
+            [
+                {
+                    "publication_id": "publication_corrupt",
+                    "task_id": "unknown",
+                    "status": "permanent_failure",
+                    "blocker_reason": "publication_integrity_failed",
+                }
+            ],
+        )
 
     def test_interruption_after_rewrite_does_not_strand_authorized_publication(
         self,
@@ -434,6 +862,7 @@ output_path.write_text(
         {
             "title": "Article with-images",
             "markdown": "# Article with-images\\n\\nBody.\\n\\n![Image 1](source-image-001.png)\\n",
+            "cover_image": "source-image-001.png",
         }
     ),
     encoding="utf-8",
@@ -461,7 +890,7 @@ output_path.write_text(
         fake_blog = self.root / "fake-public-blog"
         fake_blob = self.root / "fake-public-blob"
 
-        published = run_cli(
+        rejected_override = run_cli(
             "publish",
             "--repository",
             self.repository,
@@ -471,6 +900,26 @@ output_path.write_text(
             "upload",
             "--cover-image",
             "source-image-001.png",
+            "--fake-blob-directory",
+            fake_blob,
+            "--fake-blog-directory",
+            fake_blog,
+        )
+        self.assertEqual(rejected_override.returncode, 2)
+        self.assertIn(
+            "Artifact v2 cover selection cannot be overridden",
+            rejected_override.stderr,
+        )
+        self.assertEqual(list((self.repository / "publications").iterdir()), [])
+
+        published = run_cli(
+            "publish",
+            "--repository",
+            self.repository,
+            "--task-id",
+            task_id,
+            "--image-policy",
+            "upload",
             "--fake-blob-directory",
             fake_blob,
             "--fake-blog-directory",
@@ -611,6 +1060,7 @@ output_path.write_text(
         {
             "title": "Article resume-images",
             "markdown": "# Article resume-images\\n\\n![One](source-image-001.png)\\n\\n![Two](source-image-002.png)\\n",
+            "cover_image": "source-image-001.png",
         }
     ),
     encoding="utf-8",
@@ -631,7 +1081,8 @@ output_path.write_text(
             fake_codex,
         )
         self.assertEqual(generated.returncode, 0, generated.stderr)
-        task_id = cast(dict[str, Any], json.loads(generated.stdout))["task_ids"][0]
+        generated_result = cast(dict[str, Any], json.loads(generated.stdout))
+        task_id = generated_result["task_ids"][0]
         fake_blog = FakePublicationAdapter(self.root / "fake-resume-blog")
         blob = FakePublicBlobUploader(self.root / "fake-resume-blob")
         interrupted_blob = InterruptAfterOneUpload(blob)
@@ -640,11 +1091,10 @@ output_path.write_text(
             publish_rewrite(
                 self.repository,
                 task_id,
-                "run_interrupted_images",
+                generated_result["run_id"],
                 fake_blog,
                 image_policy="upload",
                 image_uploader=interrupted_blob,
-                cover_image="source-image-001.png",
             )
 
         publication_directories = list((self.repository / "publications").iterdir())
@@ -670,19 +1120,51 @@ output_path.write_text(
                 interrupted_blob,
             )
 
-        resumed = resume_planned_image_publication(
-            self.repository,
-            task_id,
-            "run_resumed_images",
-            fake_blog,
-            interrupted_blob,
+        foreign_blog = FakePublicationAdapter(self.root / "foreign-blog")
+        foreign_blob = FakePublicBlobUploader(self.root / "foreign-blob")
+        with self.assertRaises(KeyboardInterrupt):
+            publish_rewrite(
+                self.repository,
+                task_id,
+                generated_result["run_id"],
+                foreign_blog,
+                image_policy="upload",
+                image_uploader=InterruptAfterOneUpload(foreign_blob),
+            )
+        foreign_publication_id = next(
+            directory.name
+            for directory in (self.repository / "publications").iterdir()
+            if directory.name != publication_id
         )
 
-        self.assertIsNotNone(resumed)
-        assert resumed is not None
-        self.assertEqual(resumed[0], publication_id)
-        self.assertEqual(resumed[1]["status"], "publication_confirmed")
-        self.assertEqual(interrupted_blob.calls, 3)
+        resumed_run = self.run_without_publication(
+            "--publication",
+            "auto",
+            "--image-policy",
+            "upload",
+            "--fake-blog-directory",
+            self.root / "fake-resume-blog",
+            "--fake-blob-directory",
+            self.root / "fake-resume-blob",
+        )
+
+        self.assertEqual(len(resumed_run["publication_results"]), 1)
+        resumed = resumed_run["publication_results"][0]
+        self.assertEqual(resumed["publication_id"], publication_id)
+        self.assertEqual(resumed["status"], "publication_confirmed")
+        self.assertEqual(interrupted_blob.calls, 2)
+        foreign_publication = cast(
+            dict[str, Any],
+            json.loads(
+                (
+                    self.repository
+                    / "publications"
+                    / foreign_publication_id
+                    / "publication.json"
+                ).read_text("utf-8")
+            ),
+        )
+        self.assertEqual(foreign_publication["milestone"], "publication_created")
         self.assertEqual(
             len(list((publication_directories[0] / "image-assets").glob("*.json"))),
             2,

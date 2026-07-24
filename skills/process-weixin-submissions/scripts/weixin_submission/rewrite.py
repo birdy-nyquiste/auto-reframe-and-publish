@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from .submission import (
 )
 
 
-ARTIFACT_VERSION = 1
+ARTIFACT_VERSION = 2
 GENERATOR = "scripted_agent_fixture_v1"
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 SKILL_ROOT = Path(__file__).resolve().parents[2]
@@ -37,8 +38,17 @@ KNOWN_DEFAULT_PROMPT_PATHS = (
     PREVIOUS_DEFAULT_PROMPT_PATH,
     LEGACY_DEFAULT_PROMPT_PATH,
 )
-MANIFEST_SCHEMA_PATH = SKILL_ROOT / "schemas" / "rewrite-manifest.schema.json"
+MANIFEST_SCHEMA_PATH = SKILL_ROOT / "schemas" / "rewrite-manifest-v2.schema.json"
+LEGACY_MANIFEST_SCHEMA_PATH = SKILL_ROOT / "schemas" / "rewrite-manifest.schema.json"
+KNOWN_MANIFEST_SCHEMA_PATHS = (
+    MANIFEST_SCHEMA_PATH,
+    LEGACY_MANIFEST_SCHEMA_PATH,
+)
 REWRITE_COMMIT_PATH = "rewrite/commit.json"
+_MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]\n]*\]\(([^\s\)\n]+)\)")
+_LOCAL_IMAGE_NAME_PATTERN = re.compile(
+    r"source-image-(?P<position>[0-9]{3})\.(?:jpg|jpeg|png|gif|webp)\Z"
+)
 
 
 class ScriptedRewriteOutcome(str, Enum):
@@ -54,6 +64,8 @@ class RewriteArtifact:
     content: str
     target_id: str
     images: tuple[str, ...]
+    cover_image_source: str | None = None
+    artifact_version: int = ARTIFACT_VERSION
 
 
 @dataclass(frozen=True)
@@ -148,10 +160,11 @@ class CodexCliGenerator:
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "additionalProperties": False,
-            "required": ["title", "markdown"],
+            "required": ["title", "markdown", "cover_image"],
             "properties": {
                 "title": {"type": "string", "minLength": 1},
                 "markdown": {"type": "string", "minLength": 1},
+                "cover_image": {"type": ["string", "null"]},
             },
         }
         try:
@@ -230,8 +243,16 @@ class CodexCliGenerator:
                 category="rewrite_generation",
                 phase="generation",
             )
+        if "cover_image" not in response:
+            raise RewriteRejected(
+                "codex_generation_invalid",
+                "Codex generation must explicitly return cover_image or null",
+                category="rewrite_generation",
+                phase="generation",
+            )
         title = response.get("title")
         content = response.get("markdown")
+        cover_image = response.get("cover_image")
         if not isinstance(title, str) or not title.strip():
             raise RewriteRejected(
                 "codex_generation_invalid",
@@ -246,6 +267,13 @@ class CodexCliGenerator:
                 category="rewrite_generation",
                 phase="generation",
             )
+        if cover_image is not None and not isinstance(cover_image, str):
+            raise RewriteRejected(
+                "codex_generation_invalid",
+                "Codex generation cover_image must be a string or null",
+                category="rewrite_generation",
+                phase="generation",
+            )
         manifest = _build_agent_manifest(
             rewrite_input,
             source_images,
@@ -254,6 +282,7 @@ class CodexCliGenerator:
             self.generator_id,
             title.strip(),
             content,
+            cover_image,
         )
         return AgentRewriteOutput(content, manifest)
 
@@ -398,6 +427,14 @@ def generate_validated_rewrite(
             rewrite_input,
             content_bytes,
             generator.generator_id,
+            (
+                tuple(
+                    f"source-image-{position:03d}{_image_extension(image.content)}"
+                    for position, image in enumerate(permitted_images, start=1)
+                )
+                if _manifest_selects_cover(output.manifest)
+                else ()
+            ),
         )
     except (SchemaValidationError, WorkflowError) as error:
         rejection = RewriteRejected(
@@ -490,7 +527,6 @@ def load_rewrite_artifact(
         raise WorkflowError("Rewrite artifact resources are invalid")
     expected_resources = {
         "policy": POLICY_PATH,
-        "schema": MANIFEST_SCHEMA_PATH,
     }
     for name, expected_path in expected_resources.items():
         resource = resources.get(name)
@@ -505,6 +541,12 @@ def load_rewrite_artifact(
         raise WorkflowError(
             "Rewrite artifact default_prompt resource does not match"
         )
+    manifest_schema_resource = resources.get("schema")
+    known_manifest_schema_records = [
+        _resource_record(path) for path in KNOWN_MANIFEST_SCHEMA_PATHS
+    ]
+    if manifest_schema_resource not in known_manifest_schema_records:
+        raise WorkflowError("Rewrite artifact schema resource does not match")
 
     input_hash = require_string(
         manifest.get("generation_input_sha256"), "rewrite generation input sha256"
@@ -566,11 +608,25 @@ def load_rewrite_artifact(
     ]
     if image_records != expected_source_images:
         raise WorkflowError("Rewrite artifact images do not match structured source")
+    cover_image_source = _validate_cover_selection(
+        manifest,
+        content,
+        (
+            tuple(
+                f"source-image-{position:03d}{_image_extension(_read_bytes(task_directory / path))}"
+                for position, path in enumerate(image_paths, start=1)
+            )
+            if _manifest_selects_cover(manifest)
+            else ()
+        ),
+    )
     return RewriteArtifact(
         require_string(manifest.get("title"), "rewrite title"),
         content,
         expected_target_id,
         tuple(image_paths),
+        cover_image_source,
+        int(manifest["artifact_version"]),
     )
 
 
@@ -615,6 +671,7 @@ def _scripted_agent_generate(
         GENERATOR,
         source.title,
         content,
+        None,
     )
     injection_channels_observed = (
         "file://" in source.body
@@ -642,6 +699,7 @@ def _build_agent_manifest(
     generator_id: str,
     title: str,
     content: str,
+    cover_image_source: str | None,
 ) -> dict[str, Any]:
     controls = rewrite_input["trusted_controls"]
     if not isinstance(controls, dict):
@@ -672,6 +730,9 @@ def _build_agent_manifest(
                 if isinstance(requirements, str)
                 else None
             ),
+        },
+        "presentation": {
+            "cover_image_source": cover_image_source,
         },
         "resources": resource_records,
         "security": {
@@ -704,6 +765,8 @@ def _codex_generation_prompt(
         f"{source.body}\n\n"
         "来源正文结束\n\n"
         "请不要调用任何工具。请按照输出 Schema 返回 title 和 markdown。"
+        " cover_image 必须明确返回：若选择封面，填写正文实际引用的"
+        " source-image-NNN.ext；若不需要封面，返回 null。"
     )
 
 
@@ -729,6 +792,7 @@ def _validate_agent_manifest(
     rewrite_input: dict[str, Any],
     content_bytes: bytes,
     expected_generator_id: str,
+    allowed_image_names: tuple[str, ...],
 ) -> None:
     controls = rewrite_input["trusted_controls"]
     requirements = controls["requirements"]
@@ -765,6 +829,49 @@ def _validate_agent_manifest(
         "allowed_effect": "content_only",
     }:
         raise WorkflowError("Agent manifest changed the security boundary")
+    _validate_cover_selection(
+        manifest,
+        content_bytes.decode("utf-8"),
+        allowed_image_names,
+    )
+
+
+def _validate_cover_selection(
+    manifest: dict[str, Any],
+    content: str,
+    allowed_image_names: tuple[str, ...],
+) -> str | None:
+    presentation = manifest.get("presentation")
+    if presentation is None:
+        return None
+    if not isinstance(presentation, dict):
+        raise WorkflowError("Rewrite artifact presentation is invalid")
+    cover_image_source = presentation.get("cover_image_source")
+    if cover_image_source is None:
+        return None
+    if not isinstance(cover_image_source, str):
+        raise WorkflowError("Rewrite cover image selection must be a string or null")
+    match = _LOCAL_IMAGE_NAME_PATTERN.fullmatch(cover_image_source)
+    if match is None:
+        raise WorkflowError("Rewrite cover image selection has an invalid source name")
+    referenced_images = {
+        image.group(1) for image in _MARKDOWN_IMAGE_PATTERN.finditer(content)
+    }
+    if cover_image_source not in referenced_images:
+        raise WorkflowError(
+            "Rewrite cover image selection must be referenced by the Markdown"
+        )
+    if cover_image_source not in allowed_image_names:
+        raise WorkflowError("Rewrite cover image selection was not supplied to the Agent")
+    return cover_image_source
+
+
+def _manifest_selects_cover(manifest: dict[str, Any]) -> bool:
+    presentation = manifest.get("presentation")
+    return (
+        isinstance(presentation, dict)
+        and presentation.get("cover_image_source") is not None
+    )
 
 
 def _resource_record(path: Path) -> dict[str, str]:

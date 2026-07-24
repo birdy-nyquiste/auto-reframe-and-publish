@@ -28,7 +28,16 @@ def load_schema(record_type: str) -> dict[str, Any]:
 
 
 def validate_record(record_type: str, value: dict[str, Any]) -> None:
-    schema = load_schema(record_type)
+    schema_type = record_type
+    if record_type == "rewrite-manifest":
+        artifact_version = value.get("artifact_version")
+        if artifact_version == 2:
+            schema_type = "rewrite-manifest-v2"
+        elif artifact_version != 1:
+            raise SchemaValidationError(
+                f"rewrite-manifest: unsupported artifact_version {artifact_version!r}"
+            )
+    schema = load_schema(schema_type)
     _validate(value, schema, record_type, schema)
     if record_type == "task":
         _validate_task_invariants(value, schema)

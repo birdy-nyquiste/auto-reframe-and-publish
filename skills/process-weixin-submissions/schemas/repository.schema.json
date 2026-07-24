@@ -38,7 +38,11 @@
             "messages": {"type": "array", "items": {"type": "object"}},
             "run_id": {"type": "string"},
             "task_ids": {"type": "array", "items": {"type": "string"}},
-            "publication_selection": {"type": "string", "enum": ["none", "auto"]}
+            "publication_selection": {"type": "string", "enum": ["none", "auto"]},
+            "publication_image_policy": {
+              "type": "string",
+              "enum": ["preserve", "omit", "upload"]
+            }
           }
         }
       ]

@@ -58,7 +58,13 @@ from .submission import (
 )
 
 
-MISSING_CAPABILITIES: tuple[str, ...] = ()
+MISSING_CAPABILITIES = (
+    "v1 tracer repository migration",
+    "production retry budgets based on operational evidence",
+    "supervised macOS Computer Use acceptance suite",
+    "approved rewrite policy",
+    "real Agent rewrite generation",
+)
 MACOS_MARKER_PATTERN = re.compile(r"marker_[0-9a-f]{32}\Z")
 
 
@@ -124,6 +130,24 @@ def initialize_macos_computer_use(
     }
 
 
+def _validate_run_publication_options(
+    publication_selection: str,
+    publication_image_policy: str,
+    fake_blob_directory: Path | None,
+) -> None:
+    policy = PublicationImagePolicy.parse(publication_image_policy)
+    if publication_selection == "auto" and policy is PublicationImagePolicy.OMIT:
+        raise WorkflowError(
+            "Automatic runs do not support the explicit text-only image policy"
+        )
+    if publication_selection != "auto" and policy is not PublicationImagePolicy.PRESERVE:
+        raise WorkflowError(
+            "A non-default image policy requires --publication auto"
+        )
+    if fake_blob_directory is not None and not policy.requires_uploader:
+        raise WorkflowError("Fake Blob storage requires image-policy upload")
+
+
 def run_scripted_chat(
     repository: Path,
     chat_path: Path,
@@ -134,7 +158,14 @@ def run_scripted_chat(
     scripted_rewrite_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
     clipboard_path: Path | None = None,
     rewrite_generator: RewriteGenerator | None = None,
+    publication_image_policy: str = "preserve",
+    fake_blob_directory: Path | None = None,
 ) -> dict[str, object]:
+    _validate_run_publication_options(
+        publication_selection,
+        publication_image_policy,
+        fake_blob_directory,
+    )
     with ScriptedClipboard(
         clipboard_path or _default_clipboard_path(chat_path), "run"
     ) as clipboard:
@@ -148,6 +179,8 @@ def run_scripted_chat(
             simulate_interruption_after,
             scripted_rewrite_outcome,
             rewrite_generator,
+            publication_image_policy,
+            fake_blob_directory,
         )
 
 
@@ -160,7 +193,14 @@ def run_macos_computer_use_window(
     simulate_interruption_after: str | None = None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome = ScriptedRewriteOutcome.SUCCESS,
     rewrite_generator: RewriteGenerator | None = None,
+    publication_image_policy: str = "preserve",
+    fake_blob_directory: Path | None = None,
 ) -> dict[str, object]:
+    _validate_run_publication_options(
+        publication_selection,
+        publication_image_policy,
+        fake_blob_directory,
+    )
     window = _read_macos_window(window_path)
     if publication_selection not in ("none", "auto"):
         raise WorkflowError(
@@ -195,6 +235,7 @@ def run_macos_computer_use_window(
             "run_id": new_id("run"),
             "task_ids": [new_id("task") for _candidate in candidates],
             "publication_selection": publication_selection,
+            "publication_image_policy": publication_image_policy,
         }
         metadata["pending_window"] = pending_window
         metadata["validation_scope"] = VALIDATION_SCOPE
@@ -206,6 +247,13 @@ def run_macos_computer_use_window(
     if pending_window["publication_selection"] != publication_selection:
         raise WorkflowError(
             "The pending input window must resume with its original publication selection"
+        )
+    if (
+        pending_window.get("publication_image_policy", "preserve")
+        != publication_image_policy
+    ):
+        raise WorkflowError(
+            "The pending input window must resume with its original image policy"
         )
     current_marker_id = str(pending_window["current_marker_id"])
     messages = pending_window["messages"]
@@ -234,6 +282,8 @@ def run_macos_computer_use_window(
         [str(task_id) for task_id in task_ids],
         commit_input_cursor,
         rewrite_generator,
+        publication_image_policy,
+        fake_blob_directory,
     )
     result["marker_id"] = current_marker_id
     return result
@@ -317,6 +367,8 @@ def _run_scripted_chat_owned(
     simulate_interruption_after: str | None,
     scripted_rewrite_outcome: ScriptedRewriteOutcome,
     rewrite_generator: RewriteGenerator | None,
+    publication_image_policy: str,
+    fake_blob_directory: Path | None,
 ) -> dict[str, object]:
     if publication_selection not in ("none", "auto"):
         raise WorkflowError(
@@ -347,6 +399,7 @@ def _run_scripted_chat_owned(
             "run_id": new_id("run"),
             "task_ids": [new_id("task") for _candidate in candidates],
             "publication_selection": publication_selection,
+            "publication_image_policy": publication_image_policy,
         }
         metadata["pending_window"] = pending_window
         metadata["validation_scope"] = VALIDATION_SCOPE
@@ -356,6 +409,13 @@ def _run_scripted_chat_owned(
     if pending_window["publication_selection"] != publication_selection:
         raise WorkflowError(
             "The pending input window must resume with its original publication selection"
+        )
+    if (
+        pending_window.get("publication_image_policy", "preserve")
+        != publication_image_policy
+    ):
+        raise WorkflowError(
+            "The pending input window must resume with its original image policy"
         )
     current_marker_id = str(pending_window["current_marker_id"])
     messages = pending_window["messages"]
@@ -384,6 +444,8 @@ def _run_scripted_chat_owned(
         [str(task_id) for task_id in task_ids],
         commit_input_cursor,
         rewrite_generator,
+        publication_image_policy,
+        fake_blob_directory,
     )
     result["marker_id"] = current_marker_id
     return result
@@ -402,7 +464,10 @@ def _run_candidates(
     created_task_ids: list[str],
     commit_input_cursor: Callable[[], None],
     rewrite_generator: RewriteGenerator | None = None,
+    publication_image_policy: str = "preserve",
+    fake_blob_directory: Path | None = None,
 ) -> dict[str, object]:
+    image_policy = PublicationImagePolicy.parse(publication_image_policy)
     run_directory = repository / "runs" / run_id
     result_by_task: dict[str, dict[str, object]] = {}
     publication_results: list[dict[str, Any]] = []
@@ -538,6 +603,34 @@ def _run_candidates(
                 publication_adapter = LsforumPublicationAdapter(blog_config)
             else:
                 raise WorkflowError("Automatic publication has no Blog adapter")
+            image_uploader: ImageUploader | None = None
+            if image_policy.requires_uploader:
+                image_uploader = (
+                    FakePublicBlobUploader(fake_blob_directory)
+                    if fake_blob_directory is not None
+                    else VercelPublicBlobUploader()
+                )
+                for task_directory in sorted((repository / "tasks").iterdir()):
+                    if not task_directory.is_dir():
+                        continue
+                    resumed = resume_planned_image_publication(
+                        repository,
+                        task_directory.name,
+                        run_id,
+                        publication_adapter,
+                        image_uploader,
+                        strict_destination=False,
+                    )
+                    if resumed is None:
+                        continue
+                    publication_id, publication_result = resumed
+                    if publication_id not in run_record["attempted_publication_ids"]:
+                        run_record["attempted_publication_ids"].append(publication_id)
+                    _link_recovered_publication_run(
+                        repository, publication_id, run_id, recovered_run_ids
+                    )
+                    save_record("run", run_directory / "run.json", run_record)
+                    publication_results.append(publication_result)
             for publication_id, publication_result in resume_ready_publications(
                 repository, run_id, publication_adapter
             ):
@@ -563,6 +656,8 @@ def _run_candidates(
                     after_response_received=lambda: _maybe_interrupt(
                         simulate_interruption_after, "publication_response_received"
                     ),
+                    image_policy=image_policy.value,
+                    image_uploader=image_uploader,
                 )
                 run_record["created_publication_ids"].append(publication_id)
                 run_record["attempted_publication_ids"].append(publication_id)
@@ -595,6 +690,7 @@ def _run_candidates(
             task_results,
             publication_results,
             publication_selection,
+            image_policy.value,
             recovered_run_ids,
         ),
     )
@@ -609,6 +705,7 @@ def _run_candidates(
         "task_results": task_results,
         "publication_results": publication_results,
         "publication_selection": publication_selection,
+        "publication_image_policy": image_policy.value,
         "report_path": str(report_path.resolve()),
         "validation_scope": VALIDATION_SCOPE,
         "missing_capabilities": [
@@ -1163,6 +1260,7 @@ def _render_report(
     task_results: list[dict[str, object]],
     publication_results: list[dict[str, object]],
     publication_selection: str,
+    publication_image_policy: str,
     recovered_run_ids: list[str],
 ) -> str:
     lines = [
@@ -1172,9 +1270,10 @@ def _render_report(
         f"- Input window: {input_window}",
         f"- Tasks: {len(task_results)}",
         f"- Publication selection: {publication_selection}",
+        f"- Publication image policy: {publication_image_policy}",
         f"- Recovered runs: {', '.join(recovered_run_ids) if recovered_run_ids else 'none'}",
         f"- Validation scope: {VALIDATION_SCOPE}",
-        f"- Not validated: {', '.join(MISSING_CAPABILITIES) or 'none'}",
+        f"- Not validated: {', '.join(MISSING_CAPABILITIES)}",
         "",
         "## Task results",
         "",

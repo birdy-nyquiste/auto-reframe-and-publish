@@ -63,6 +63,31 @@ def create_parser() -> argparse.ArgumentParser:
         default="none",
         help="Public publication is opt-in for this run; omission means none.",
     )
+    run.add_argument(
+        "--image-policy",
+        choices=(
+            PublicationImagePolicy.PRESERVE.value,
+            PublicationImagePolicy.UPLOAD.value,
+        ),
+        default="preserve",
+        help=(
+            "Image handling for an explicitly authorized automatic publication; "
+            "upload uses the rewrite Agent's validated cover selection."
+        ),
+    )
+    run.add_argument(
+        "--fake-blob-directory",
+        type=Path,
+        help="Validation-only fake public Blob service used with image-policy upload.",
+    )
+    run.add_argument(
+        "--env-file",
+        type=Path,
+        help=(
+            "Local secret file loaded without shell expansion for real automatic "
+            "image upload."
+        ),
+    )
     blog = run.add_mutually_exclusive_group()
     blog.add_argument(
         "--fake-blog-directory",
@@ -150,6 +175,23 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 arguments.macos_marker_id,
             )
     if arguments.operation == "run":
+        if (
+            arguments.image_policy == PublicationImagePolicy.UPLOAD.value
+            and arguments.fake_blob_directory is None
+            and arguments.env_file is None
+        ):
+            raise WorkflowError(
+                "Real automatic image publication requires an explicit --env-file"
+            )
+        if arguments.env_file is not None:
+            if (
+                arguments.publication != "auto"
+                or arguments.image_policy != PublicationImagePolicy.UPLOAD.value
+            ):
+                raise WorkflowError(
+                    "Run --env-file requires --publication auto --image-policy upload"
+                )
+            load_env_file(arguments.env_file)
         generator_name = arguments.rewrite_generator or (
             "codex" if arguments.macos_window is not None else "scripted"
         )
@@ -178,6 +220,8 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                     arguments.scripted_rewrite_outcome,
                     arguments.scripted_clipboard,
                     rewrite_generator,
+                    arguments.image_policy,
+                    arguments.fake_blob_directory,
                 )
             return 0, run_macos_computer_use_window(
                 arguments.repository,
@@ -188,6 +232,8 @@ def execute(arguments: argparse.Namespace) -> tuple[int, dict[str, object]]:
                 arguments.simulate_interruption_after,
                 arguments.scripted_rewrite_outcome,
                 rewrite_generator,
+                arguments.image_policy,
+                arguments.fake_blob_directory,
             )
     if arguments.operation == "status":
         return 0, repository_status(arguments.repository, arguments.disk_warning_bytes)

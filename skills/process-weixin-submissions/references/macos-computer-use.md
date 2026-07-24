@@ -102,6 +102,21 @@ python scripts/process_weixin_submissions.py run \
 
 The Codex subprocess is ephemeral, constrained to read-only execution, receives the versioned default prompt plus only the validated source data and permitted static images, and must return structured title/Markdown data. Deterministic code builds and validates the manifest before committing the artifact. `codex` is the default generator for `--macos-window`; an explicit scripted override is only for validation and cannot be combined with automatic publication.
 
+When the operator explicitly authorizes automatic publication, use:
+
+```text
+python scripts/process_weixin_submissions.py run \
+  --repository <absolute-task-repository-path> \
+  --macos-window <absolute-captured-window-path> \
+  --rewrite-generator codex \
+  --publication auto \
+  --image-policy upload \
+  --env-file <project>/.env \
+  --blog-config <project>/config/blog.lsforum.json
+```
+
+The running Agent must explicitly select a referenced supplied image as cover or return no cover. The same run commits the selection in artifact v2, uploads only referenced images, fixes the publication presentation, and then calls the Blog adapter.
+
 7. Clear the clipboard through a Computer Use-controlled UI action and verify in a disposable text surface that the copied article body is no longer present. If clearing or verification fails, report the run as not fully accepted even if local processing completed.
 
 ## Acceptance

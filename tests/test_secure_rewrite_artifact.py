@@ -192,7 +192,7 @@ class SecureRewriteArtifactTest(unittest.TestCase):
             / "skills"
             / "process-weixin-submissions"
             / "schemas"
-            / "rewrite-manifest.schema.json"
+            / "rewrite-manifest-v2.schema.json"
         )
         self.assertEqual(resources["schema"]["sha256"], sha256(rewrite_schema))
         self.assertNotIn("request", manifest)
@@ -258,6 +258,59 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         artifact = load_rewrite_artifact(task_directory, "trusted-author")
 
         self.assertEqual(artifact.target_id, "trusted-author")
+
+    def test_existing_v1_artifact_remains_readable_after_cover_contract_upgrade(
+        self,
+    ) -> None:
+        self.append_submission()
+        result = self.run_intake()
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        input_path = (
+            task_directory
+            / "rewrite"
+            / "attempts"
+            / result["run_id"]
+            / "input.json"
+        )
+        manifest_path = task_directory / "rewrite" / "manifest.json"
+        commit_path = task_directory / "rewrite" / "commit.json"
+        legacy_schema = (
+            ROOT
+            / "skills"
+            / "process-weixin-submissions"
+            / "schemas"
+            / "rewrite-manifest.schema.json"
+        )
+        legacy_schema_record = {
+            "path": legacy_schema.relative_to(ROOT).as_posix(),
+            "sha256": sha256(legacy_schema),
+        }
+
+        rewrite_input = json.loads(input_path.read_text("utf-8"))
+        rewrite_input["resources"]["schema"] = legacy_schema_record
+        input_path.write_text(
+            json.dumps(rewrite_input, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        manifest = json.loads(manifest_path.read_text("utf-8"))
+        manifest["artifact_version"] = 1
+        manifest.pop("presentation")
+        manifest["resources"]["schema"] = legacy_schema_record
+        manifest["generation_input_sha256"] = sha256(input_path)
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        commit = json.loads(commit_path.read_text("utf-8"))
+        commit["manifest_sha256"] = sha256(manifest_path)
+        commit_path.write_text(
+            json.dumps(commit, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        artifact = load_rewrite_artifact(task_directory, "trusted-author")
+
+        self.assertEqual(artifact.cover_image_source, None)
 
     def test_rewrite_input_isolates_injected_source_from_trusted_controls(
         self,
@@ -353,6 +406,43 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         self.assertFalse((task_directory / "rewrite" / "content.md").exists())
         self.assertFalse((task_directory / "rewrite" / "manifest.json").exists())
         self.assertFalse((self.fake_blog / "drafts").exists())
+
+    def test_running_agent_must_explicitly_choose_or_omit_a_cover(self) -> None:
+        self.append_submission()
+        fake_codex = Path(self.temporary_directory.name) / "fake-codex-no-cover"
+        fake_codex.write_text(
+            """#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+output_path.write_text(
+    json.dumps(
+        {
+            "title": "安全改写产物",
+            "markdown": "# 安全改写产物\\n\\n正文。\\n",
+        }
+    ),
+    encoding="utf-8",
+)
+""",
+            encoding="utf-8",
+        )
+        fake_codex.chmod(0o755)
+
+        result = self.run_intake(
+            "--rewrite-generator",
+            "codex",
+            "--codex-command",
+            fake_codex,
+        )
+
+        task_directory = self.repository / "tasks" / result["task_ids"][0]
+        task = json.loads((task_directory / "task.json").read_text("utf-8"))
+        self.assertEqual(result["task_results"][0]["status"], "permanent_failure")
+        self.assertEqual(task["blocker"]["error_code"], "codex_generation_invalid")
+        self.assertFalse((task_directory / "rewrite" / "manifest.json").exists())
 
     def test_validation_failure_keeps_candidate_only_in_attempt_evidence(
         self,

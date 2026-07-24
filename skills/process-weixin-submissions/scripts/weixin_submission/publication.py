@@ -208,16 +208,29 @@ def publish_rewrite(
             f"Task {task_id} has invalid Blog publication fields: {error}"
         ) from error
     artifact = load_rewrite_artifact(task_directory, target_id, task["requirements"])
+    if artifact.artifact_version >= 2 and cover_image is not None:
+        raise WorkflowError(
+            "Artifact v2 cover selection cannot be overridden during publication"
+        )
+    selected_cover = (
+        artifact.cover_image_source
+        if artifact.artifact_version >= 2
+        else artifact.cover_image_source or cover_image
+    )
     image_plan: dict[str, Any] | None = None
+    image_plan_error: BlobUploadError | None = None
     if policy.requires_uploader:
         if image_uploader is None:
             raise WorkflowError("Image upload policy requires a Blob uploader")
-        image_plan = _build_image_plan(
-            task_directory,
-            artifact,
-            cover_image=cover_image,
-            destination=image_uploader.destination_id,
-        )
+        try:
+            image_plan = _build_image_plan(
+                task_directory,
+                artifact,
+                cover_image=selected_cover,
+                destination=image_uploader.destination_id,
+            )
+        except BlobUploadError as error:
+            image_plan_error = error
         publication_body = artifact.content
         presentation = None
     else:
@@ -249,6 +262,23 @@ def publish_rewrite(
     _commit_publication(
         publication_directory, publication, run_id, "milestone_committed"
     )
+
+    if image_plan_error is not None:
+        _block(
+            publication_directory,
+            publication,
+            run_id,
+            PublicationError(
+                (
+                    PublicationBlockerKind.NEEDS_CONFIGURATION
+                    if image_plan_error.needs_configuration
+                    else PublicationBlockerKind.PERMANENT_FAILURE
+                ),
+                image_plan_error.code,
+                str(image_plan_error),
+            ),
+        )
+        return publication_id, _result(publication)
 
     if artifact.images and policy is PublicationImagePolicy.PRESERVE:
         publication["blocker"] = {
@@ -390,6 +420,8 @@ def resume_planned_image_publication(
     run_id: str,
     adapter: PublicationAdapter,
     image_uploader: ImageUploader,
+    *,
+    strict_destination: bool = True,
 ) -> tuple[str, dict[str, Any]] | None:
     publications_directory = repository / "publications"
     if not publications_directory.exists():
@@ -397,7 +429,12 @@ def resume_planned_image_publication(
     for publication_directory in sorted(publications_directory.iterdir()):
         if not publication_directory.is_dir():
             continue
-        publication = validate_publication_history(publication_directory)
+        try:
+            publication = validate_publication_history(publication_directory)
+        except (WorkflowError, SchemaValidationError, OSError):
+            if strict_destination:
+                raise
+            continue
         if (
             publication["task_id"] != task_id
             or publication["adapter"] != adapter.adapter_id
@@ -407,11 +444,15 @@ def resume_planned_image_publication(
         ):
             continue
         if publication.get("destination") != adapter.destination_id:
+            if not strict_destination:
+                continue
             raise WorkflowError(
                 "Pending image publication belongs to another Blog destination"
             )
         image_plan = publication["image_plan"]
         if image_plan.get("destination") != image_uploader.destination_id:
+            if not strict_destination:
+                continue
             raise WorkflowError(
                 "Pending image publication belongs to another Blob destination"
             )

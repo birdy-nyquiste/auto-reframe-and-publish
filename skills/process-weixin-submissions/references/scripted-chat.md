@@ -47,7 +47,7 @@ python scripts/process_weixin_submissions.py run \
   --scripted-clipboard <absolute-scripted-clipboard-path>
 ```
 
-The omitted publication selection is `none`. For an explicitly authorized validation-only automatic publication, add `--publication auto --fake-blog-directory <absolute-fake-blog-path>`. For LSForum, add `--publication auto --blog-config <absolute-non-secret-config-path>` instead. Never supply `auto` unless the operator requested public publication for this run.
+The omitted publication selection is `none`. For an explicitly authorized validation-only automatic publication, add `--publication auto --fake-blog-directory <absolute-fake-blog-path>`. To exercise referenced-image upload as part of that run, also add `--image-policy upload --fake-blob-directory <absolute-fake-blob-path>`. For LSForum image publication, use `--publication auto --image-policy upload --env-file <project>/.env --blog-config <absolute-non-secret-config-path>`. Never supply `auto` unless the operator requested public publication for this run.
 
 ## Submission messages
 

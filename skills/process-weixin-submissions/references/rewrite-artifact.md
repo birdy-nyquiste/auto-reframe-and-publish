@@ -1,6 +1,6 @@
 # Rewrite artifact contract
 
-The content boundary accepts Markdown plus a deterministically built manifest. Automated core tests use `scripted_agent_fixture_v1`; the macOS path uses `running_agent_v1`, backed by an ephemeral, read-only `codex exec` subprocess with a strict title/Markdown output Schema. The versioned default prompt v2 is active for current use; v1 remains immutable so historical rewrite commits can still be verified. Ticket 09 still owns the separately approved formal content policy and any later prompt version.
+The content boundary accepts Markdown plus a deterministically built manifest. Automated core tests use `scripted_agent_fixture_v1`; the macOS path uses `running_agent_v1`, backed by an ephemeral, read-only `codex exec` subprocess with a strict title/Markdown/cover output Schema. The versioned default prompt v2 is active for current use; v1 remains immutable so historical rewrite commits can still be verified. Ticket 09 still owns the separately approved formal content policy and any later prompt version.
 
 ## Input boundary
 
@@ -31,6 +31,8 @@ rewrite/
 
 A generation failure has `input.json` plus `failure.json`. A validation failure also retains both candidate files and records their hashes in `failure.json`. Failed attempts never create or replace the committed files.
 
-The committed manifest records content and source hashes, ordered content-addressed images, trusted-control mode and hashes, resource hashes, and the security boundary. It has no Blog request, response, publication, or deployment fields. `commit.json` independently anchors the exact manifest bytes. Delivery records a complete validation attempt and verifies the commit anchor, generation input, `洗稿指令`, current trusted resources, structured source, Markdown, author identity, image confinement, and every recorded hash before using the artifact.
+Artifact v2 also records `presentation.cover_image_source`. The running Agent must explicitly select one exact `source-image-NNN.ext` that it actually referenced in Markdown and was supplied by the handoff, or explicitly return `null`. A missing selection, an unreferenced image, a nonexistent position, or an extension the Agent was not given rejects the candidate before commit. Artifact v1 and its original immutable Schema remain readable for historical publication; v1 has no persisted cover selection.
+
+The committed manifest records content and source hashes, ordered content-addressed images, trusted-control mode and hashes, the explicit cover selection, resource hashes, and the security boundary. It has no Blog request, response, publication, or deployment fields. `commit.json` independently anchors the exact manifest bytes. Delivery records a complete validation attempt and verifies the commit anchor, generation input, `洗稿指令`, versioned Schema, structured source, Markdown, author identity, image confinement, cover selection, and every recorded hash before using the artifact.
 
 `--rewrite-generator codex` is required for a real macOS content run. `--scripted-rewrite-outcome generation_failure|validation_failure|capability_violation` and `--rewrite-generator scripted` are validation-only fixtures; do not use them for an operator's real task.

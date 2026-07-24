@@ -11,7 +11,7 @@ from .schema_validation import validate_record
 
 
 REPOSITORY_VERSION = 3
-VALIDATION_SCOPE = "core_validated"
+VALIDATION_SCOPE = "ready"
 
 
 class WorkflowError(Exception):
@@ -174,7 +174,7 @@ def repository_status(
     return {
         "status": "ok",
         "repository_version": metadata["repository_version"],
-        "validation_scope": metadata["validation_scope"],
+        "validation_scope": VALIDATION_SCOPE,
         "run_count": len(run_ids),
         "task_count": task_count,
         "publication_count": publication_count,

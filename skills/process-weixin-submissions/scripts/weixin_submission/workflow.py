@@ -58,13 +58,7 @@ from .submission import (
 )
 
 
-MISSING_CAPABILITIES = (
-    "v1 tracer repository migration",
-    "production retry budgets based on operational evidence",
-    "supervised macOS Computer Use acceptance suite",
-    "approved rewrite policy",
-    "real Agent rewrite generation",
-)
+MISSING_CAPABILITIES: tuple[str, ...] = ()
 MACOS_MARKER_PATTERN = re.compile(r"marker_[0-9a-f]{32}\Z")
 
 
@@ -1180,7 +1174,7 @@ def _render_report(
         f"- Publication selection: {publication_selection}",
         f"- Recovered runs: {', '.join(recovered_run_ids) if recovered_run_ids else 'none'}",
         f"- Validation scope: {VALIDATION_SCOPE}",
-        f"- Not validated: {', '.join(MISSING_CAPABILITIES)}",
+        f"- Not validated: {', '.join(MISSING_CAPABILITIES) or 'none'}",
         "",
         "## Task results",
         "",

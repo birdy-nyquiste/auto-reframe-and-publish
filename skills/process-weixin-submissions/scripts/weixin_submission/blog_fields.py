@@ -9,10 +9,6 @@ from .storage import WorkflowError
 STRING_FIELDS = {
     "author.name",
     "author.slug",
-    "author.title",
-    "author.orgSlug",
-    "orgName",
-    "orgSlug",
     "category",
 }
 ENUM_FIELDS = {"postType": {"article", "opinion"}}

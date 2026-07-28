@@ -1,6 +1,7 @@
 ---
 status: accepted
 amends: 0009
+superseded-by: 0013
 ---
 
 # 接入版本化 Content API，但限制管理能力的自动化边界

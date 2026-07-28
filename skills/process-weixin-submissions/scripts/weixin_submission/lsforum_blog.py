@@ -15,52 +15,6 @@ from .schema_validation import validate_record
 from .storage import WorkflowError, read_json
 
 
-ALLOWED_PATCH_FIELDS = {
-    "title",
-    "content",
-    "author",
-    "authorSlug",
-    "authorName",
-    "excerpt",
-    "postType",
-    "category",
-    "titleZh",
-    "excerptZh",
-    "contentZh",
-    "authorTitle",
-    "orgName",
-    "orgSlug",
-    "image",
-    "sourceUrl",
-    "readTime",
-    "featured",
-    "tags",
-    "status",
-}
-ALLOWED_AUTHOR_FIELDS = {"slug", "name", "title", "orgSlug"}
-LEGACY_AUTHOR_FIELDS = ("authorSlug", "authorName", "authorTitle")
-
-
-def _author_object_error(author: object) -> str | None:
-    if not isinstance(author, dict):
-        return "author must be an object"
-    unknown_fields = sorted(set(author) - ALLOWED_AUTHOR_FIELDS)
-    if unknown_fields:
-        return f"author has unsupported fields: {unknown_fields}"
-    name = author.get("name")
-    if not isinstance(name, str) or not name.strip():
-        return "author requires a non-empty name"
-    if name != name.strip() or any(
-        ord(character) < 32 or ord(character) == 127 for character in name
-    ):
-        return "author name must not contain surrounding whitespace or control characters"
-    for field in ("slug", "title", "orgSlug"):
-        value = author.get(field)
-        if value is not None and not isinstance(value, str):
-            return f"author field {field} must be a string"
-    return None
-
-
 class LsforumContentApiAdapter:
     def __init__(self, config_path: Path, timeout_seconds: float = 10.0) -> None:
         config = read_json(config_path)
@@ -219,83 +173,8 @@ class LsforumContentApiAdapter:
             )
         return self._recovered_response(request, existing, unknown_outcome=True)
 
-    def get_managed_post(self, slug: str) -> dict[str, Any]:
-        response = self._content_api_request(
-            "GET", f"/posts/{_encoded_slug(slug)}?manage=true"
-        )
-        if response is None:
-            raise PublicationError(
-                PublicationBlockerKind.PERMANENT_FAILURE,
-                "blog_http_404",
-                "Blog post was not found",
-            )
-        return response
-
-    def patch_post(
-        self, slug: str, changes: dict[str, Any], *, version: int | str
-    ) -> dict[str, Any]:
-        if not isinstance(changes, dict) or not changes:
-            raise _invalid_management_request("Blog patch must be a non-empty object")
-        unknown = sorted(set(changes) - ALLOWED_PATCH_FIELDS)
-        if unknown:
-            raise _invalid_management_request(
-                f"Blog patch has unsupported fields: {unknown}"
-            )
-        status = changes.get("status")
-        if status is not None and status not in ("draft", "published", "archived"):
-            raise _invalid_management_request(
-                "Blog patch status must be draft, published, or archived"
-            )
-        if "author" in changes:
-            author_error = _author_object_error(changes["author"])
-            if author_error is not None:
-                raise _invalid_management_request(f"Blog patch {author_error}")
-            conflicting_author_fields = sorted(
-                field for field in LEGACY_AUTHOR_FIELDS if field in changes
-            )
-            if conflicting_author_fields:
-                raise _invalid_management_request(
-                    "Blog patch author cannot be combined with legacy author fields: "
-                    f"{conflicting_author_fields}"
-                )
-        version_text = _version_text(version)
-        response = self._content_api_request(
-            "PATCH",
-            f"/posts/{_encoded_slug(slug)}",
-            payload=changes,
-            extra_headers={"X-Post-Version": f'"{version_text}"'},
-            side_effect=True,
-        )
-        if response is None:
-            raise AssertionError("PATCH cannot return an absent response")
-        return response
-
-    def soft_delete_post(self, slug: str) -> dict[str, Any]:
-        response = self._content_api_request(
-            "DELETE", f"/posts/{_encoded_slug(slug)}", side_effect=True
-        )
-        if response is None:
-            raise AssertionError("DELETE cannot return an absent response")
-        return response
-
-    def restore_post(self, slug: str) -> dict[str, Any]:
-        response = self._content_api_request(
-            "POST", f"/posts/{_encoded_slug(slug)}/restore", side_effect=True
-        )
-        if response is None:
-            raise AssertionError("restore cannot return an absent response")
-        return response
-
-    def list_revisions(self, slug: str) -> dict[str, Any]:
-        response = self._content_api_request(
-            "GET", f"/posts/{_encoded_slug(slug)}/revisions"
-        )
-        if response is None:
-            raise AssertionError("revisions cannot return an absent response")
-        return response
-
     def normalize_response(self, raw_response: object) -> dict[str, Any]:
-        response_body, response_etag = _response_parts(raw_response)
+        response_body = _response_body(raw_response)
         if not isinstance(response_body, dict):
             raise PublicationError(
                 PublicationBlockerKind.PERMANENT_FAILURE,
@@ -319,24 +198,20 @@ class LsforumContentApiAdapter:
         item = response_body.get("item")
         item = item if isinstance(item, dict) else {}
         version = response_body.get("version", item.get("version"))
-        etag = response_etag or response_body.get("etag") or response_body.get("ETag")
         content_status = response_body.get("status", item.get("status", "published"))
-        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        if version is None and response_body.get("recovered") is not True:
             raise PublicationError(
                 PublicationBlockerKind.PERMANENT_FAILURE,
                 "blog_response_invalid",
-                "Blog response lacks a valid version",
+                "Blog POST response lacks a version",
             )
-        if (
-            (not isinstance(etag, str) or not etag)
-            and response_body.get("recovered") is True
+        if version is not None and (
+            not isinstance(version, int) or isinstance(version, bool) or version < 1
         ):
-            etag = f'"{version}"'
-        if not isinstance(etag, str) or not etag:
             raise PublicationError(
                 PublicationBlockerKind.PERMANENT_FAILURE,
                 "blog_response_invalid",
-                "Blog response lacks an ETag",
+                "Blog response has an invalid version",
             )
         if content_status != "published":
             raise PublicationError(
@@ -344,16 +219,17 @@ class LsforumContentApiAdapter:
                 "blog_response_invalid",
                 "Blog publication response is not published",
             )
-        return {
+        normalized = {
             "external_id": slug,
             "status": "published",
             "content_status": content_status,
             "public_url": url,
             "slug": slug,
             "adapter": self.adapter_id,
-            "version": version,
-            "etag": etag,
         }
+        if version is not None:
+            normalized["version"] = version
+        return normalized
 
     def _recover_or_unknown(
         self,
@@ -380,50 +256,27 @@ class LsforumContentApiAdapter:
         path: str,
         *,
         payload: dict[str, Any] | None = None,
-        extra_headers: dict[str, str] | None = None,
         allow_not_found: bool = False,
-        side_effect: bool = False,
+        authenticated: bool = True,
     ) -> dict[str, Any] | None:
         try:
             response = self._send_http_request(
-                method, path, payload=payload, extra_headers=extra_headers
+                method, path, payload=payload, authenticated=authenticated
             )
         except urllib.error.HTTPError as error:
             body = error.read()
             if error.code == 404 and allow_not_found:
                 return None
-            if error.code == 412:
-                raise PublicationError(
-                    PublicationBlockerKind.PERMANENT_FAILURE,
-                    "blog_version_conflict",
-                    _error_message(body) or "Blog version is stale",
-                    _raw_http_error(error.code, body),
-                ) from error
-            if error.code == 428:
-                raise PublicationError(
-                    PublicationBlockerKind.PERMANENT_FAILURE,
-                    "blog_version_required",
-                    _error_message(body) or "Blog version header is required",
-                    _raw_http_error(error.code, body),
-                ) from error
             raise PublicationError(
-                (
-                    PublicationBlockerKind.OUTCOME_UNKNOWN
-                    if side_effect and error.code >= 500
-                    else PublicationBlockerKind.PERMANENT_FAILURE
-                ),
+                PublicationBlockerKind.PERMANENT_FAILURE,
                 f"blog_http_{error.code}",
                 _error_message(body) or f"Blog returned HTTP {error.code}",
                 _raw_http_error(error.code, body),
             ) from error
         except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as error:
             raise PublicationError(
-                (
-                    PublicationBlockerKind.OUTCOME_UNKNOWN
-                    if side_effect
-                    else PublicationBlockerKind.PERMANENT_FAILURE
-                ),
-                "blog_management_outcome_unknown" if side_effect else "blog_read_failed",
+                PublicationBlockerKind.PERMANENT_FAILURE,
+                "blog_read_failed",
                 f"Blog {method} failed: {error}",
             ) from error
         status = response["http_status"]
@@ -441,14 +294,11 @@ class LsforumContentApiAdapter:
         path: str,
         *,
         payload: dict[str, Any] | None = None,
-        extra_headers: dict[str, str] | None = None,
+        authenticated: bool = True,
     ) -> dict[str, Any]:
-        api_key = self._api_key()
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-            **(extra_headers or {}),
-        }
+        headers = {"Accept": "application/json"}
+        if authenticated:
+            headers["Authorization"] = f"Bearer {self._api_key()}"
         data = None
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -460,7 +310,6 @@ class LsforumContentApiAdapter:
             return _http_response(
                 response.status,
                 response.read(),
-                response.headers.get("ETag"),
                 f"Blog {method} response",
             )
 
@@ -468,8 +317,9 @@ class LsforumContentApiAdapter:
         try:
             return self._content_api_request(
                 "GET",
-                f"/posts/{_encoded_slug(slug)}?manage=true",
+                f"/posts/{_encoded_slug(slug)}",
                 allow_not_found=True,
+                authenticated=False,
             )
         except PublicationError as error:
             if error.blocker_kind is PublicationBlockerKind.NEEDS_CONFIGURATION:
@@ -492,7 +342,7 @@ class LsforumContentApiAdapter:
         *,
         unknown_outcome: bool = False,
     ) -> dict[str, Any]:
-        existing_body, existing_etag = _response_parts(existing)
+        existing_body = _response_body(existing)
         if not isinstance(existing_body, dict):
             raise PublicationError(
                 PublicationBlockerKind.PERMANENT_FAILURE,
@@ -515,8 +365,6 @@ class LsforumContentApiAdapter:
             and existing_body.get("content") == request["body_markdown"]
             and observed_author == expected_author
             and existing_body.get("image") == request.get("cover_image")
-            and existing_body.get("status") == "published"
-            and _explicitly_undeleted(existing_body)
         )
         if not matches:
             raise PublicationError(
@@ -532,39 +380,31 @@ class LsforumContentApiAdapter:
                 ),
                 (
                     "The fixed slug could not be matched to the exact title, body, "
-                    "author, cover image, and published state"
+                    "author, and cover image in the public Blog response"
                 ),
             )
+        observed_url = existing_body.get("url")
+        public_url = (
+            observed_url
+            if isinstance(observed_url, str)
+            and observed_url.startswith(("http://", "https://"))
+            else f"{self.base_url.removesuffix('/api/v1')}/posts/{request['slug']}"
+        )
         return {
             "http_status": existing.get("http_status", 200),
-            "headers": {"etag": existing_etag},
+            "headers": {},
             "body": {
                 "ok": True,
                 "slug": request["slug"],
-                "url": existing_body.get(
-                    "url",
-                    f"{self.base_url.removesuffix('/api/v1')}/posts/{request['slug']}",
-                ),
+                "url": public_url,
                 "item": existing_body,
-                "version": existing_body.get("version"),
-                "status": existing_body.get("status"),
+                "status": "published",
                 "recovered": True,
             },
         }
 
 
 LsforumPublicationAdapter = LsforumContentApiAdapter
-
-
-def _json_object(body: bytes, label: str) -> dict[str, Any]:
-    value = _json_value(body, label)
-    if not isinstance(value, dict):
-        raise PublicationError(
-            PublicationBlockerKind.PERMANENT_FAILURE,
-            "blog_response_invalid",
-            f"{label} must be an object",
-        )
-    return value
 
 
 def _json_value(body: bytes, label: str) -> object:
@@ -579,28 +419,20 @@ def _json_value(body: bytes, label: str) -> object:
     return value
 
 
-def _http_response(
-    status: int, body: bytes, etag: str | None, label: str
-) -> dict[str, Any]:
+def _http_response(status: int, body: bytes, label: str) -> dict[str, Any]:
     parsed_body: object = _json_value(body, label) if body else None
-    headers: dict[str, str] = {}
-    if etag is not None:
-        headers["etag"] = etag
-    return {"http_status": status, "headers": headers, "body": parsed_body}
+    return {"http_status": status, "headers": {}, "body": parsed_body}
 
 
-def _response_parts(raw_response: object) -> tuple[object, str | None]:
+def _response_body(raw_response: object) -> object:
     if not isinstance(raw_response, dict):
-        return raw_response, None
+        return raw_response
     if "http_status" not in raw_response:
-        etag = raw_response.get("etag") or raw_response.get("ETag")
-        return raw_response, etag if isinstance(etag, str) else None
-    headers = raw_response.get("headers")
-    etag = headers.get("etag") if isinstance(headers, dict) else None
-    return raw_response.get("body"), etag if isinstance(etag, str) else None
+        return raw_response
+    return raw_response.get("body")
 
 
-def _invalid_management_request(message: str) -> PublicationError:
+def _invalid_slug(message: str) -> PublicationError:
     return PublicationError(
         PublicationBlockerKind.PERMANENT_FAILURE,
         "publication_request_invalid",
@@ -610,35 +442,8 @@ def _invalid_management_request(message: str) -> PublicationError:
 
 def _encoded_slug(slug: str) -> str:
     if not isinstance(slug, str) or not slug.strip():
-        raise _invalid_management_request("Blog slug must be non-empty")
+        raise _invalid_slug("Blog slug must be non-empty")
     return urllib.parse.quote(slug, safe="")
-
-
-def _version_text(version: int | str) -> str:
-    if isinstance(version, bool):
-        raise _invalid_management_request("Blog version must be a positive integer")
-    if isinstance(version, int):
-        if version < 1:
-            raise _invalid_management_request("Blog version must be a positive integer")
-        return str(version)
-    if (
-        not isinstance(version, str)
-        or not version
-        or not version.isascii()
-        or any(character in version for character in ('"', "\r", "\n"))
-    ):
-        raise _invalid_management_request("Blog version has an invalid format")
-    return version
-
-
-def _explicitly_undeleted(post: dict[str, Any]) -> bool:
-    if "deleted" in post:
-        return post["deleted"] is False
-    if "isDeleted" in post:
-        return post["isDeleted"] is False
-    if "deletedAt" in post:
-        return post["deletedAt"] is None
-    return False
 
 
 def _error_message(body: bytes) -> str | None:

@@ -131,7 +131,6 @@ class FakePublicationAdapter:
             "slug": request["slug"],
             "adapter": self.adapter_id,
             "version": 1,
-            "etag": '"1"',
         }
         write_json(
             self.directory / "posts" / f"{publication_id}.json",

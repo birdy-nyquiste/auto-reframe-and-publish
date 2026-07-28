@@ -1,241 +1,457 @@
-# LSForum Blog 外部接口参考
+# LSForum Blog API（内部文档）
 
-> 状态：外部接口参考，不是本项目拥有的契约。本文最初于 2026-07-17 整理，并于 2026-07-21 根据 Blog 团队 v0.6 文档及部署中的 OpenAPI v1.4.0 更新作者、摘要和文章类型语义。实现仍应以部署 OpenAPI、环境配置和变更通知为准。
+> 合作方对接与运维说明。实现与此文档及 `/api/v1/openapi.json` 保持一致。
+> 原 `ingestion.md` 已合并入本文档。
 
-## 用途
+**API version: v0.7**
 
-本文记录当前 LSForum Blog 已知的读取、创建和版本化管理接口，供本项目设计发布任务、实现适配器和排查联调问题时参考。
+| 版本 | 能力 |
+| ---- | ---- |
+| v0.3 | 封面 `image` 外链 → Public Vercel Blob |
+| v0.4 | 正文 `content` / `contentZh` 内 `![](url)` 外链 → Blob |
+| v0.5 | 文档与实现对齐：Public Blob 要求、OIDC 认证、临时 URL 语义、完整 UAT |
+| v0.6 | `excerpt` 无默认值；`postType` 默认 `opinion`；作者按 `author.name` 匹配 |
+| v0.7 | 写入仅上传（无 PATCH/DELETE）；去掉 `author.title` / `orgSlug` 声明；时间戳与阅读时间约定固化 |
 
-创建接口现在支持 `draft | published`。服务端默认 `published`；本项目的 `auto` 发布路径显式发送 `published`，不依赖默认值。草稿和软删除内容只能通过带认证的管理读取获取。
+---
 
-## 环境
+## Base URL
 
-| 项目 | 当前信息 |
-| --- | --- |
-| Base URL | `https://blog-lsforum.vercel.app/api/v1` |
-| 部署 OpenAPI | `1.4.0`（2026-07-21 实际读取） |
-| 正式/测试环境 | 只提供了一个当前地址，未确认独立测试环境 |
-| 内容类型 | file-based post、import、API-ingested external post |
-| 写入存储 | Postgres `ingested_posts` |
-| 写入效果 | `published` 立即公开且无需 rebuild；`draft` 不公开 |
+| 环境 | Base URL | 说明 |
+| ---- | -------- | ---- |
+| **当前可用（推荐联调）** | `https://blog-lsforum.vercel.app/api/v1` | Vercel 默认域名 |
+| 生产（待 DNS） | `https://blog.lsforum.org/api/v1` | 需先将 `blog.lsforum.org` 解析到 Vercel |
+
+下文示例默认使用 **blog-lsforum.vercel.app**。绑定自定义域名后替换即可。
+
+Base path: `/api/v1`
+公开读接口无需认证。**写入仅支持上传**：`POST /api/v1/posts`，使用 `Authorization: Bearer <INGEST_API_KEY>`。无公开更新/删除接口。
+响应默认 `Content-Type: application/json; charset=utf-8`；`?format=markdown` 返回纯 Markdown。
+
+标量字段缺省为 `null`；数组缺省为 `[]`。公开接口仅返回 `status = "published"` 的内容。
+
+Feed 三种 `kind`：`post`（git 文件）、`import`（Industry News）、`external`（API 推送）。
+
+Machine-readable schema: [`/api/v1/openapi.json`](/api/v1/openapi.json)
+
+---
+
+## 一次性配置（LSForum 运维）
+
+### 1. Postgres
+
+Vercel → Storage → Postgres/Neon。自动注入 `POSTGRES_URL`（或自行设置 `DATABASE_URL`）。
+首次 API 调用自动建表。
+
+### 2. Blob — 必须 Public Store
+
+> **P0：必须创建 Public Blob Store。Private Store 不能用于公开文章图片。**
+
+若在 Private Store 上调用 `put({ access: 'public' })`，会报错：
+`Cannot use public access on a private store`。
+
+| 步骤 | 操作 |
+| ---- | ---- |
+| 创建 | Storage → Create → **Blob** → Access: **Public**（不要选 Private） |
+| 连接 | 勾选 **blog-lsforum** 项目及 Production / Preview / Development |
+| 验证 | 环境变量中出现 Blob 相关项；部署后 ingest 返回的 URL 含 **`.public.blob.vercel-storage.com`** |
+
+**认证（二选一，代码均已兼容）：**
+
+| 方式 | 环境变量 | 说明 |
+| ---- | -------- | ---- |
+| **OIDC（Vercel 默认）** | `BLOB_STORE_ID` + `VERCEL_OIDC_TOKEN` | 部署在 Vercel 时自动注入/轮换 |
+| **静态 Token（本地/CI）** | `BLOB_READ_WRITE_TOKEN` | `vercel env pull .env.local` 获取 |
+
+本地开发：`vercel env pull .env.local`，确保上述变量之一可用。
+
+### 3. INGEST_API_KEY
+
+```bash
+openssl rand -hex 32
+```
+
+写入 Vercel 环境变量，通过密码管理器单独发给合作方。**勿写入仓库、勿放前端。**
+
+### 4. 重新部署
+
+修改 Storage 或环境变量后必须 Redeploy。
+
+未配置 Postgres 或 API Key → 写入返回 `503`；站点仍可按 git 文件内容运行。
+
+---
 
 ## 认证
 
-创建和全部管理接口统一使用：
-
 ```http
 Authorization: Bearer <INGEST_API_KEY>
 ```
 
-- 凭据由 Blog 项目的 `INGEST_API_KEY` 环境变量配置。
-- 调用方应从运行时环境变量或凭据存储读取，不得写入请求 JSON、浏览器代码、Git、任务记录或报告。
-- 缺少或空白的服务端 key 配置返回 `503`。
-- 调用方提供错误 key 返回 `401`。
-- 当前材料没有定义 scope；同一个 key 可创建、读取受限状态、修改、软删除、恢复及查看历史。
+仅合作方**服务端**调用；浏览器/移动端不得持有该密钥。
 
-## Endpoint 概览
+---
 
-| Method | Path | Auth | 当前语义 |
-| --- | --- | --- | --- |
-| `GET` | `/posts` | 无 | 合并读取 published post、import 和 external post |
-| `GET` | `/posts/:slug` | 无 | 读取公开 post 详情 |
-| `GET` | `/posts/:slug?format=markdown` | 无 | 读取英文 Markdown 正文 |
-| `POST` | `/posts` | Bearer | 创建 `draft` 或 `published` external post；默认 published |
-| `GET` | `/posts/:slug?manage=true` | Bearer | 读取草稿、软删除状态及当前 version |
-| `PATCH` | `/posts/:slug` | Bearer + `X-Post-Version` | 按当前 version 局部修改；成功后 version 增加 |
-| `DELETE` | `/posts/:slug` | Bearer | 软删除文章，使其不再公开显示 |
-| `POST` | `/posts/:slug/restore` | Bearer | 恢复软删除文章 |
-| `GET` | `/posts/:slug/revisions` | Bearer | 读取只读操作历史和版本快照 |
-| `GET` | `/imports/:keyword` | 无 | 读取 import/repost 详情 |
-| `GET` | `/orgs` | 无 | 读取组织列表 |
-| `GET` | `/orgs/:slug` | 无 | 读取组织详情 |
-| `GET` | `/openapi.json` | 无 | 对方声明的 OpenAPI 3.0 文档地址 |
+## 合作方快速上手
 
-本项目正常 `run` 只允许使用显式 published `POST` 和用于确认结果的管理 `GET`。适配器具有窄的管理方法以匹配接口，但它们不是微信输入、CLI operation、正常运行步骤或自动恢复动作；彻底删除与历史修改不实现。
+### 最小发布
 
-## 创建文章
-
-```http
-POST /api/v1/posts
-Content-Type: application/json
-Authorization: Bearer <INGEST_API_KEY>
+```bash
+curl -X POST https://blog-lsforum.vercel.app/api/v1/posts \
+  -H "Authorization: Bearer $INGEST_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Test opinion",
+    "author": { "name": "Jane Doe" },
+    "content": "# Hello\n\nBody text.",
+    "image": "https://example.com/cover.jpg"
+  }'
 ```
+
+成功 `201`：保存 `slug`、`url`。打开 `url` 验证页面；`GET /api/v1/posts/<slug>` 核对 `content` 与 `image`。
+
+### 作者（`author`）
+
+| 字段 | 必填 | 说明 |
+| ---- | ---- | ---- |
+| `author.name` | ✅ | 作者显示名；**同一 `name` 视为同一作者**（跨稿件合并） |
+| `author.slug` | | 可选；缺省由 `name` 生成 URL slug |
+
+不声明 `author.title` / `author.orgSlug`（易与文章 `title` 混淆）；请勿依赖。
+
+不再使用 `externalId` / `authorExternalId` 判别作者；传入也会被忽略。
+
+### `postType`：`article` 与 `opinion`
+
+| 值 | 默认 | 适用内容 |
+| ---- | ---- | -------- |
+| `opinion` | **是** | 成员代表个人观点，不代表 LSForum 官方立场；出现在 `/opinion` |
+| `article` | 否 | 组织正式稿件；需显式传 `"postType": "article"` |
+
+`category` 是主题标签（如 `AI`），与 `postType` 无关。
+
+### `excerpt`（引言）
+
+| 规则 | 说明 |
+| ---- | ---- |
+| 可选 | 不传、传 `null` 或空字符串 → **不生成、不展示**引言块 |
+| 有值 | 详情页标题下显示为引用块；≤ 500 字 |
+| 禁止依赖缺省 | **不会**从 `content` 自动截取（避免露出 `![](url)` 等 Markdown） |
+
+需要引言时显式传纯文本摘要，例如：`"excerpt": "复联4重映传闻与下一部的叙事衔接。"`
+
+### 时间戳与阅读时间
+
+| 概念 | 字段 | 规则 |
+| ---- | ---- | ---- |
+| **Published At** | `publishedAt`（管理响应）/ 列表 `date` | 服务端在首次 `published` 时自动写入；外部**不可自定义** |
+| 前台展示 | `date` | 只显示到**日**（如 `July 27, 2026`） |
+| **Read time** | `readTime` | 可选；不传则按英文正文约 220 wpm 估算为 `"N min read"`，**始终展示** |
+
+Created At / Updated At 仅出现在上传响应的 `item` 中，前台不单独展示。
+
+### 上传（唯一写入能力）
+
+| 动作 | 方法 | 要点 |
+| ---- | ---- | ---- |
+| 上传 | `POST /api/v1/posts` | Bearer `INGEST_API_KEY` |
+
+无 `PATCH` / `DELETE` / `restore` / `revisions` / `?manage=true`。
+
+---
+
+## 图片：两种标准工作流
+
+API **不接受** `multipart` 上传、Base64、`data:` URL。仅接受 JSON 中的 URL 字符串。
+
+### 工作流 A — 合作方已有公开临时 URL（推荐）
+
+1. `POST` 时在 `image` 和/或 `content` 里填入 `https://…`
+2. 服务端拉取并写入 **Public Blob**
+3. 响应与数据库存 **`.public.blob.vercel-storage.com`** URL
+
+### 工作流 B — 编辑只有本地文件
+
+1. 先上传到 Public Blob（需已 `vercel link` 且 env 已 pull）：
+
+```bash
+vercel blob put ./cover.jpg --pathname covers/manual/cover.jpg
+# 返回 https://….public.blob.vercel-storage.com/…
+```
+
+2. 将返回 URL 填入 JSON 的 `image` 或 Markdown `![](url)`
+3. 再 `POST /api/v1/posts`（已托管 URL 不会重复上传）
+
+大量正文图（>5 张）建议**先全部 `vercel blob put`，再提交已托管 URL**，避免单次 Serverless 请求超时。
+
+---
+
+## Endpoints
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/v1/posts` | — | 已发布合并 feed |
+| GET | `/api/v1/posts/:slug` | — | 文章详情 |
+| GET | `/api/v1/posts/:slug?format=markdown` | — | 英文 Markdown 正文 |
+| POST | `/api/v1/posts` | Ingest key | **上传（创建）** |
+| GET | `/api/v1/imports/:keyword` | — | Industry News 详情 |
+| GET | `/api/v1/orgs` | — | 组织列表 |
+| GET | `/api/v1/orgs/:slug` | — | 组织详情 |
+| GET | `/api/v1/openapi.json` | — | OpenAPI 3.0 |
+
+---
+
+## POST `/api/v1/posts`
 
 ### Request body
 
-| Field | Type | Required | 当前说明 |
-| --- | --- | --- | --- |
-| `title` | string | 是 | 最多 200 字符 |
-| `content` | string | 是 | Markdown；raw HTML 不渲染 |
-| `author` | object | 新接入要求 | `name` 必填并用于跨稿件匹配作者；可含 slug、title、orgSlug |
-| `authorName` | string | 否 | 旧版自由文本作者名，仅供历史兼容 |
-| `authorSlug` | string | 否 | 公开作者 slug |
-| `excerpt` | string | 否 | 最多 500 字符；省略、`null` 或空字符串都不显示引言，不从正文生成 |
-| `slug` | string | 否 | 省略时从标题生成；冲突时自动去重 |
-| `postType` | `article` 或 `opinion` | 否 | 默认 `opinion`；组织正式稿应显式使用 `article` |
-| `category` | string | 否 | 默认 `General` |
-| `titleZh` | string | 否 | 中文标题 |
-| `excerptZh` | string | 否 | 中文摘要 |
-| `contentZh` | string | 否 | 中文 Markdown 正文 |
-| `authorTitle` | string | 否 | 作者头衔自由文本 |
-| `orgName` | string | 否 | 组织或来源自由文本标签 |
-| `orgSlug` | string | 否 | 已存在组织的 slug |
-| `image` | http(s) URL | 否 | 卡片和 hero 封面图 |
-| `sourceUrl` | http(s) URL | 否 | 原始来源地址 |
-| `readTime` | string | 否 | 省略时自动估算 |
-| `featured` | boolean | 否 | 默认 `false` |
-| `tags` | string[] 或逗号分隔 string | 否 | 最多 12 个 SEO 标签 |
-| `status` | `draft` 或 `published` | 否 | 默认 `published`；本项目自动发布时显式发送 `published` |
+| Field | Type | Required | Notes |
+| ----- | ---- | -------- | ----- |
+| `title` | string | ✅ | 文章标题；≤ 200 |
+| `content` | string | ✅ | Markdown 正文；插图 `![](https://…)` |
+| `author` | object | ✅ | **`name`（必填）**；可选 `slug` |
+| `excerpt` | string | | ≤ 500；缺省/空 → 无引言 |
+| `slug` | string | | 缺省从 title 生成并去重 |
+| `postType` | `article`\|`opinion` | | **默认 `opinion`**；正式稿显式传 `article` |
+| `status` | `draft`\|`published` | | 默认 `published` |
+| `category` | string | | 默认 `General`（自由标签，不是内容类型） |
+| `titleZh` / `excerptZh` / `contentZh` | string | | 双语可选 |
+| `image` | string | | 封面 URL；http(s) 镜像到 Blob |
+| `sourceUrl` | string | | 原文链接 http(s) |
+| `readTime` | string | | 可选；缺省自动估算并展示 |
+| `featured` | boolean | | 默认 `false` |
+| `tags` | string[] | | 最多 12；可逗号分隔字符串 |
 
-### 最小示例
+不声明、请勿依赖：`author.title`、`author.orgSlug`、顶层 `orgSlug` / `authorTitle` 等历史字段。
 
-```json
-{
-  "title": "How users are adopting AI agents",
-  "author": {
-    "name": "Jane Doe"
-  },
-  "content": "# Heading\n\nMarkdown body goes here.",
-  "postType": "opinion",
-  "status": "published"
-}
-```
-
-### Success
-
-HTTP `201`。真实 UAT 确认 JSON 返回正整数 `version`，HTTP 响应头返回带双引号的 ETag；客户端以响应头为首选，并兼容 JSON 中的 `etag` 或 `ETag`：
-
-```http
-ETag: "1"
-```
+### Response `201`
 
 ```json
 {
   "ok": true,
-  "slug": "how-users-are-adopting-ai-agents",
-  "url": "https://blog-lsforum.vercel.app/posts/how-users-are-adopting-ai-agents",
+  "slug": "how-users-adopt-ai-agents",
+  "url": "https://blog-lsforum.vercel.app/posts/how-users-adopt-ai-agents",
+  "version": 1,
+  "status": "published",
   "item": {
     "kind": "external",
-    "slug": "how-users-are-adopting-ai-agents"
-  },
-  "version": 1
+    "slug": "how-users-adopt-ai-agents",
+    "title": "…",
+    "content": "…",
+    "contentZh": null,
+    "image": "https://….public.blob.vercel-storage.com/covers/…",
+    "status": "published",
+    "version": 1,
+    "createdAt": "2026-07-20T12:00:00.000Z",
+    "updatedAt": "2026-07-20T12:00:00.000Z",
+    "publishedAt": "2026-07-20T12:00:00.000Z",
+    "deletedAt": null
+  }
 }
 ```
 
-`published` 时 `slug` 与 `url` 指向公开文章；`draft` 响应也返回相同 URL，但公共 GET 为 `404`，不能把该 URL 当作公开成功证据。
+`item` 为 **ManagedExternalPostResponse**：含列表字段 + 正文 + `status` / `version` / 时间戳等，不仅限于 ExternalListItem。
 
-### 已知错误
+---
 
-| HTTP | 当前说明 |
+## 封面图（v0.3）
+
+| 合作方传入 | 服务端 | 存入 `ingested_posts.image` |
+| ---------- | ------ | --------------------------- |
+| 省略 | 无封面，UI 占位 | `null` |
+| `https://partner…/tmp.jpg` | 拉取 → Public Blob `covers/{slug}/…` | `https://….public.blob.vercel-storage.com/…` |
+| `https://….public.blob.vercel-storage.com/…` | 已托管，跳过 | 原 URL |
+| `https://….private.blob.vercel-storage.com/…` | **视为未托管**，尝试重新镜像到 Public | Public URL 或失败时保留原址 |
+| `/assets/…` | 站内静态资源 | 原路径 |
+
+**要求：** 公网 http(s)；jpeg/png/webp/gif；≤ 10 MB/张；单张 fetch 超时 20 s。
+
+**临时 URL 语义（重要）：**
+
+- 镜像**成功** → 响应中 URL 已变为 `.public.blob.vercel-storage.com`，此后原临时链可失效。
+- 镜像**失败** → 响应仍返回**原始 URL**，你必须保持该 URL 在访客可读期间持续可访问。
+- 未配置 Blob → http(s) 原样存储，**你方负责链接长期有效**。
+
+---
+
+## 正文插图（v0.4）
+
+在 `content` / `contentZh` 中使用 Markdown 图片语法，**无单独字段**：
+
+```markdown
+第一段。
+
+![Figure 1](https://partner.example/tmp/fig1.png)
+
+第二段。
+```
+
+**版式位置**由 Markdown 文档顺序决定，无 `imagePosition` 字段。块级图建议前后各空一行。
+
+| 写法 | 渲染 |
+| ---- | ---- |
+| 段落后空行 + `![](url)` + 空行 + 下一段 | 段间全宽插图 |
+| `文字 ![icon](url) 继续` | 段内 inline 图 |
+
+| Markdown 中的 URL | 服务端 |
+| ----------------- | ------ |
+| `![](https://partner…/a.png)` | 镜像 → `content/{slug}/inline/…` |
+| `![](https://….public.blob.vercel-storage.com/…)` | 跳过 |
+| `![](https://….private.blob.vercel-storage.com/…)` | 按外链重新镜像 |
+| `![](/assets/…)` | 跳过 |
+| HTML `<img>` | **不支持**（渲染时剥离） |
+
+**限制：**
+
+- 与封面相同的内容类型与大小
+- 每个 markdown 字段最多 **20** 个不同外链；中英文各算一个字段
+- 同 URL 多次出现只镜像一次
+- 镜像并发 **4** 路，整次请求图片处理预算 **50 s**；超限后剩余 URL 保持原址
+- URL **勿含未编码空格或 `)`**；含特殊字符须 `encodeURI`（解析用正则，非完整 Markdown AST）
+
+临时 URL 规则与封面相同：仅当响应/详情中已改写为 Public Blob URL 后，才可放弃原链。
+
+---
+
+## Partner UAT 清单
+
+1. `POST` `status: draft` → 公开 `GET` 返回 `404`
+2. `POST` `status: published` → 公开 `GET` `200`；`item.date` 为日历日；`item.readTime` 有值
+3. 带 `image` 的 `POST` → `item.image` 含 **`.public.blob.vercel-storage.com`**
+4. `GET /api/v1/posts/:slug` → `content` 内所有 `![](…)` 已改写为 **`.public.blob.vercel-storage.com`**（或 `/assets/`）
+5. 对封面 + 每张正文图 `HEAD` → `200`，`Content-Type` 为 `image/*`
+6. 浏览器打开文章页，封面与正文图均可见
+7. `PATCH` / `DELETE` / `restore` / `revisions` → `404` 或 `405`
+
+```bash
+INGEST_API_KEY="..." npm run test:ingestion -- https://blog-lsforum.vercel.app
+```
+
+### 本地测试
+
+```bash
+cp .env.example .env.local
+# vercel env pull .env.local  # POSTGRES_URL, INGEST_API_KEY, Blob 变量
+npm install && npm run dev
+```
+
+```bash
+curl -X POST http://localhost:3456/api/v1/posts \
+  -H "Authorization: Bearer test-key" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Local test","author":{"name":"Sam"},"content":"# Hi\n\n![x](https://example.com/x.png)"}'
+```
+
+---
+
+## 公开读接口摘要
+
+### GET `/api/v1/posts`
+
+Query: `page`, `pageSize` (1–50), `type` (`article`|`opinion`|`import`), `org`, `category`, `featured=true`
+排序：按发布时间倒序（API 稿含精确时间戳；前台 `date` 只到日）。
+
+### GET `/api/v1/posts/:slug`
+
+列表字段 + `content`, `contentZh`。
+`external` 帖子的 `content` 中应为镜像后的 Blob URL。
+
+### Content kinds
+
+| `kind` | 来源 | 路由 |
+| ------ | ---- | ---- |
+| `post` | `/content/posts` | `/posts/:slug` |
+| `import` | `/content/imports` | `/:keyword`（Industry News） |
+| `external` | `POST /api/v1/posts` | `/posts/:slug` |
+
+### ExternalListItem（feed / 列表）
+
+```json
+{
+  "kind": "external",
+  "slug": "how-users-adopt-ai-agents",
+  "url": "/posts/how-users-adopt-ai-agents",
+  "postType": "opinion",
+  "title": "How users adopt AI agents",
+  "excerpt": "…",
+  "category": "AI",
+  "date": "2026-07-16",
+  "readTime": "4 min read",
+  "image": "https://abc.public.blob.vercel-storage.com/covers/…/cover.jpg",
+  "authorSlug": "jane-doe",
+  "authorName": "Jane Doe",
+  "authorTitle": null,
+  "orgSlug": null,
+  "orgName": null,
+  "tags": ["ai", "agents"]
+}
+```
+
+`date` 为发布日历日；`readTime` 为阅读时间文案（上传时未传则由服务端估算）。
+
+---
+
+## SEO
+
+详情页自动生成：`title` / `excerpt`、canonical、Open Graph、Twitter Card、JSON-LD `Article`。
+建议提供清晰 `title`、`excerpt`、`image`、**`author.name`**，及 `tags`。
+
+---
+
+## Errors
+
+```json
+{ "error": { "code": "NOT_FOUND", "message": "Post not found" } }
+```
+
+| Code | HTTP | When |
+| ---- | ---- | ---- |
+| `NOT_FOUND` | 404 | 未知 slug/keyword/org；或 draft 的公开读 |
+| `VALIDATION_ERROR` | 400 | 非法参数或字段 |
+| `UNAUTHORIZED` | 401 | 缺失或错误 `INGEST_API_KEY` |
+| `VALIDATION_ERROR` | 503 | 未配置数据库（实现上 code 仍为 `VALIDATION_ERROR`） |
+| `VALIDATION_ERROR` | 500 | 写入失败（Postgres 或镜像异常） |
+
+---
+
+## 存储结构
+
+### Postgres `ingested_posts`（API 文章）
+
+| 列 | 说明 |
 | --- | --- |
-| `400` | 请求字段缺失或无效；message 应指出问题 |
-| `401` | Bearer key 错误 |
-| `404` | 读取未知 slug、keyword、org，或访问未公开内容 |
-| `412` | PATCH 的 `X-Post-Version` 已过期；响应提供当前 version |
-| `428` | PATCH 缺少或提供了非法的 `X-Post-Version` |
-| `503` | 服务端未配置 key 或数据库 |
+| `slug` | PK |
+| `title`, `title_zh`, `excerpt`, `excerpt_zh` | |
+| `content`, `content_zh` | Markdown；正文图 URL 在文中 |
+| `category`, `post_type`, `status`, `version` | `status`: draft / published / archived |
+| `author_name`, `author_title`, `author_id`, `author_slug`, `author_external_id` | 作者冗余 + `ingested_users` 关联 |
+| `org_slug`, `org_name` | |
+| `image` | 封面 **已服务 URL**（优先 Public Blob） |
+| `source_url`, `read_time`, `featured`, `tags` | |
+| `created_at`, `updated_at`, `published_at`, `deleted_at` | |
+| `source_system` | |
 
-当前材料没有完整定义 `403`、`409`、`413`、`415`、`422`、`429`、5xx、字段级校验 details、追踪 ID 及 `Retry-After`。
+关联表 **`ingested_users`**：`external_id` + `source_system` 唯一，供作者 upsert。
 
-## 读取和归属语义
+### Vercel Blob（图片二进制）
 
-- API 创建的文章以 `kind: external` 合并到公共 feed。
-- 公开详情由 `GET /posts/:slug` 返回；`?format=markdown` 返回正文。
-- 草稿、软删除文章和当前 version 由带 Bearer 认证的 `GET /posts/:slug?manage=true` 返回。
-- `author.name` 是 v0.6 的作者匹配键；同名稿件归并到同一作者，修改名字可能创建或选择不同作者。
-- `externalId` / `authorExternalId` 不再参与作者识别；即使旧接口形态仍接收，服务端也会忽略。本项目的新配置与 PATCH 均拒绝这些字段。
-- `authorName`、`authorTitle` 和 `orgName` 仅保留旧对接兼容；新对接使用 `author` 对象。
-- `author.orgSlug` 或顶层 `orgSlug` 指向已有组织时，文章进入该组织 feed 与计数。
-- SEO 由 Blog 根据 title、显式 excerpt、image、author.name、组织信息、date 和 tags 自动生成。
+| 路径 | 用途 |
+| ---- | ---- |
+| `covers/{slug}/…` | 封面 |
+| `content/{slug}/inline/…` | 正文图 |
 
-## 版本化编辑、软删除和历史
+**必须 Public Store**；仅 `.public.blob.vercel-storage.com` URL 视为已托管。
 
-- `PATCH /posts/:slug` 支持局部修改，必须发送 `X-Post-Version: "<当前version>"`。同事消息曾写成 `If-Match`，但部署 OpenAPI 与真实 UAT 均确认实际头名为 `X-Post-Version`。
-- 成功修改后 version 自动增加；版本过期返回 `412`。调用方必须重新读取并由操作人决定如何处理冲突，不能静默覆盖或自动重试。
-- `DELETE /posts/:slug` 是软删除：文章不再公开显示，但记录仍存在并可恢复。
-- `POST /posts/:slug/restore` 恢复软删除文章。
-- `GET /posts/:slug/revisions` 返回 `{slug, items}`，items 按最新版本优先，action 为 `create | update | delete | restore` 并包含只读 snapshot。历史不能通过 API 修改或彻底删除。
-- 彻底删除只能由网站管理员在数据库后台处理，本项目不提供该能力。
-- OpenAPI 的 PATCH 字段白名单不包含 slug，允许内容、作者、组织、展示字段和 `draft | published | archived` 生命周期状态。虽然部署 OpenAPI 仍列出历史 `authorExternalId`，v0.6 文档明确它不再参与识别，因此适配器主动拒绝该无效字段。
-- 管理读取使用 `deletedAt` 表示软删除状态：活动记录为 `null`，软删除记录为时间戳。适配器仍兼容 `deleted` / `isDeleted` 布尔表示，但字段完全缺失时保守地视为结果未知。
-- 管理错误采用 `{error: {code, message, ...}}`；适配器同时兼容早期顶层 `message`。
+### Git `/content`（编辑部）
 
-## UAT 限制
+见 [content-guide.md](./content-guide.md)。与 API 路径独立。
 
-早期材料建议发布标题带 `[UAT TEST]` 的公开文章，读取验证后再删除。现在 DELETE 是软删除，不等于清除测试数据；真实联调仍必须使用操作人批准的内容和目标，测试后的软删除或管理员彻底清理由双方另行约定。
+---
 
-真实联调前需要由 Blog 团队提供可接受公开测试内容的安全目标和清理负责人，或者提供隔离的 staging 环境。测试发布也必须由操作人明确授权。
+## 运维：备份
 
-## 图片能力
+```bash
+POSTGRES_URL="postgres://..." npm run backup:posts
+POSTGRES_URL="postgres://..." npm run restore:posts -- backups/ingested-posts/<file>.json.gz --confirm
+```
 
-POST/PATCH 只接收 JSON URL，不接收 multipart、Base64 或 data URL。`image` 是卡片和 hero 封面；正文多图直接写在 `content` / `contentZh` 的 Markdown `![](url)` 中。
-
-- 可传普通 http(s) 图片、Public Vercel Blob URL 或站内 `/assets` 路径。
-- Blog 会把普通外部 http(s) 图片镜像到自身 Public Vercel Blob；若已是 `.public.blob.vercel-storage.com` URL，则跳过重复上传。
-- 本地文件推荐由调用方先用 Vercel Blob `put` 上传，再把返回 URL 写入正文和 `image`。
-- 支持 JPEG、PNG、WebP、GIF；每张不超过 10 MB。
-- 每个 Markdown 字段最多 20 个不同的外部行内图片 URL；超过 5 张时建议调用方先直接上传 Blob。
-- 当前部署 OpenAPI 的 `content` 最大长度为 100000 字符。
-
-本项目采用直接 Public Blob 上传，因此固定请求中的正文和封面已经是最终 URL，Blog 不需要再次改写 URL，未知结果确认仍可进行精确正文比较。只有经过改写 Agent 选择并实际出现在 Markdown 中的本地图片会上传；未使用的来源图片不会因发布而公开。
-
-## 幂等、重试和未知结果
-
-当前接口不支持 idempotency key。对方明确建议暂时避免自动重试，因为重复 POST 可能创建重复公开文章。
-
-本项目适配时采用以下保守规则：
-
-1. 发布前持久化 publication ID、固定显式 slug、rewrite commit hash 和完整请求。
-2. 发送前用带认证的 `manage=true` 查询固定 slug，防止草稿或软删除记录导致重复/冲突。
-3. 收到 `201` 后持久化原始及规范化响应。
-4. 超时或连接中断后管理查询固定 slug，并校验标题、正文、作者、published 状态及未删除状态。
-5. 仍无法确认时进入 `outcome_unknown`，不得自动再次 POST。
-6. 只有确认目标 slug 不存在后，操作人才可以显式允许重试。
-
-这些客户端措施只能降低风险，不能提供服务端 exactly-once 保证。服务端自动修改冲突 slug 时，响应丢失后的恢复仍可能无法确定。
-
-## 项目计划采用方式
-
-以下是 ADR-0009 已确定并由当前适配器实现的设计：
-
-- 内容处理与公开发布是两个不同的任务生命周期。
-- 投稿任务产生不可变改写产物，不因 Blog 字段变化而重做采集和来源重建。
-- 发布任务读取改写产物和任务中已类型化的 Blog 发布字段，并负责图片 URL、请求、响应和未知结果处理。
-- `auto` 明确提交 `status: published`，并在成功结果中保留 version 与 ETag。
-- 如果任务头显式提供 `postType: opinion`，发布请求会原样采用；项目不维护本地目标映射，也不生成或提交 `excerpt`。
-- 发布确认使用带认证的管理 GET；适配器管理方法不由普通 `run` 自动调用。
-- `run` 只有在操作人本次明确选择自动发布时才创建并执行发布任务。
-- 未提及发布或明确选择不发布时，`run` 停在改写产物完成，不调用外部写接口。
-- 来源文章、微信任务头和 Blog 响应都不能自行打开自动发布。
-
-2026-07-17 已完成一次经操作人明确授权的纯文本 UAT 公开发布与独立 GET 回读，证据见 [LSForum 真实接口验收](../validation/2026-07-17-lsforum-live-acceptance.md)。该验收不覆盖图片、正式改写或 macOS 微信采集。
-
-同日还完成版本化 Content API 的真实 draft 生命周期验收，覆盖创建、管理读取、成功 PATCH、过期版本 412、软删除、恢复、revisions、公共隐藏和最终软删除，证据见 [版本化 Content API 真实验收](../validation/2026-07-17-versioned-content-api-live-acceptance.md)。
-
-## 尚未确认
-
-- 当前 Base URL 是否为长期生产地址；是否有独立 staging/UAT 环境。
-- `/openapi.json` 是否与部署版本严格同步及其版本策略。
-- slug 的字符和长度限制，以及显式 slug 冲突时的精确算法。
-- 未知 JSON 字段是拒绝还是忽略。
-- 旧 `authorName` 与新 `author` 同时出现时服务端的精确优先级；本项目禁止混用。
-- `tags` 两种输入形态的规范化规则。
-- 除已知正文 100000 字符与图片限制外的请求体总大小、速率和并发限制。
-- 成功写入与公共读取之间是否存在延迟。
-- Public Blob 的保留、清理、计费归属与孤立资源清理策略。
-- key 的轮换、撤销、scope 和目标隔离能力。
-- ETag 是否也可能在 JSON 中返回，以及 revisions 是否会增加分页或保留期限。
-- 版本 header 为何偏离同事消息中的 `If-Match`，以及未来是否会再次迁移到标准条件请求头。
-- PATCH 各 nullable 字段的清空细节，以及 draft/published/archived 之间的业务约束。
-
-## 来源记录
-
-- Blog 团队 `api.md`：总体读取和写入接口、公共内容结构、组织及字段字典。
-- Blog 团队 `ingestion.md`：部署地址、认证、即时发布流程、UAT、早期编辑限制及无幂等警告。
-- Blog 团队 2026-07-17 Content API 更新说明：status、manage 读取、条件 PATCH、软删除、恢复、revisions 与统一认证。
-- Blog 团队 2026-07-20 `api.md` v0.5：作者身份、Public Blob 与正文图片规则。
-- Blog 团队 2026-07-21 `api.md` v0.6：作者改为按 name 匹配、excerpt 不再自动生成、postType 默认 opinion。
-- 部署中的 `/api/v1/openapi.json` v1.4.0：当前路径、header、字段、图片限制与成功/错误 Schema。
-- 2026-07-17 真实 draft 生命周期 UAT：确认部署行为及版本递增、ETag、公共隐藏和 revisions 快照。
-
-两份原始文件位于项目仓库之外，没有作为正式 vendor snapshot 提交。若对方文档更新，应重新核对本参考，而不是假设其自动同步。
+`backups/` 已 gitignore。勿将备份提交 GitHub。

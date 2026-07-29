@@ -210,7 +210,7 @@ class LsforumPublicationTest(unittest.TestCase):
                     "kind": "text",
                     "text": (
                         "#投稿\n"
-                        "author.name: Writer One\n"
+                        "作者: Writer One\n"
                         "author.slug: writer-one\n"
                         "postType: opinion\n"
                         "category: Community"
@@ -645,7 +645,7 @@ class LsforumPublicationTest(unittest.TestCase):
                     {
                         "message_id": "h-new",
                         "kind": "text",
-                        "text": "#投稿\nauthor.name: writer-one",
+                        "text": "#投稿\n作者: writer-one",
                     },
                     {
                         "message_id": "a-new",

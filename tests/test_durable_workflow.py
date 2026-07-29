@@ -73,7 +73,7 @@ class DurableWorkflowTest(unittest.TestCase):
             }
         chat["messages"].extend(
             [
-                {"message_id": "header", "kind": "text", "text": "#投稿\nauthor.name: writer"},
+                {"message_id": "header", "kind": "text", "text": "#投稿\n作者: writer"},
                 article,
             ]
         )

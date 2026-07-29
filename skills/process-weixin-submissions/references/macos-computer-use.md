@@ -54,7 +54,7 @@ Do not scan or import messages before this baseline.
     {
       "message_id": "stable-ui-message-id-or-run-local-id",
       "kind": "text",
-      "text": "#投稿\nauthor.name: Public author name\npostType: opinion\n洗稿指令: 可选"
+      "text": "#投稿\n作者: Public author name\npostType：opinion\n洗稿指令: 可选"
     },
     {
       "message_id": "stable-ui-message-id-or-run-local-id",
@@ -75,7 +75,9 @@ Do not scan or import messages before this baseline.
 Marker messages themselves must not appear in `messages`. Every `message_id` must be non-empty and unique within the window. The `scripted_capture` field name is not used for real captures.
 
 Task-header field lines accept either the half-width separator `:` or the
-full-width separator `：`. Keep the field names themselves exact.
+full-width separator `：`. Use localized `作者` for Blog `author.name` and
+localized `洗稿指令`; keep every optional Blog field name exactly as defined by
+the API. Do not use literal `author.name` or `文章数` in the task header.
 
 For a WeChat image saved under the repository's `tmp/` directory, use a staged media item rather than embedding base64 in the captured window:
 

@@ -27,7 +27,7 @@ def header(message_id: str, target: str) -> dict[str, object]:
     return {
         "message_id": message_id,
         "kind": "text",
-        "text": f"#投稿\nauthor.name: {target}",
+        "text": f"#投稿\n作者: {target}",
     }
 
 
@@ -223,14 +223,17 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 {
                     "message_id": "empty-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name： author-empty\n洗稿指令：",
+                    "text": (
+                        "#投稿\n作者： author-empty\n"
+                        "author.slug： author-empty-slug\n洗稿指令："
+                    ),
                 },
                 article("empty-article", "空要求"),
                 {
                     "message_id": "multiline-header",
                     "kind": "text",
                     "text": (
-                        "#投稿\nauthor.name: author-custom\n文章数: 1\n"
+                        "#投稿\n作者: author-custom\n"
                         "postType: article\ncategory: AI\n"
                         "tags: Kimi, AI, IPO\nfeatured: true\n洗稿指令:\n"
                         "突出恢复能力\n不要添加来源中没有的事实"
@@ -240,25 +243,25 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 {
                     "message_id": "unknown-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: author-unknown\n作者: 不应接受",
+                    "text": "#投稿\nauthor.name: author-unknown",
                 },
                 article("unknown-article", "未知字段"),
                 {
                     "message_id": "multi-source-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: author-multi\n文章数: 2",
+                    "text": "#投稿\n作者: author-multi\n文章数: 1",
                 },
                 article("multi-source-article", "暂不支持多文章"),
                 {
                     "message_id": "duplicate-field-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: first\nauthor.name: second",
+                    "text": "#投稿\n作者: first\n作者： second",
                 },
                 article("duplicate-field-article", "重复控制字段"),
                 {
                     "message_id": "protected-field-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: author-protected\nstatus: published",
+                    "text": "#投稿\n作者: author-protected\nstatus: published",
                 },
                 article("protected-field-article", "受保护字段"),
                 {
@@ -289,6 +292,15 @@ class MarkerWindowIntakeTest(unittest.TestCase):
         self.assertIsNone(records[0]["requirements"])
         self.assertIsNone(records[1]["requirements"])
         self.assertEqual(
+            records[1]["publication_fields"],
+            {
+                "author": {
+                    "name": "author-empty",
+                    "slug": "author-empty-slug",
+                }
+            },
+        )
+        self.assertEqual(
             records[2]["requirements"],
             "突出恢复能力\n不要添加来源中没有的事实",
         )
@@ -303,9 +315,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
             },
         )
         self.assertEqual(records[3]["blocker"]["reason"], "unknown_control_field")
-        self.assertEqual(
-            records[4]["blocker"]["reason"], "unsupported_article_count"
-        )
+        self.assertEqual(records[4]["blocker"]["reason"], "unknown_control_field")
         self.assertEqual(
             records[5]["blocker"]["reason"], "duplicate_control_field"
         )
@@ -319,7 +329,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
         self.initialize_chat()
         duplicate_header = {
             "kind": "text",
-            "text": "#投稿\nauthor.name: author-duplicate",
+            "text": "#投稿\n作者: author-duplicate",
         }
         duplicate_article = {
             "kind": "official_account_article",
@@ -333,7 +343,7 @@ class MarkerWindowIntakeTest(unittest.TestCase):
                 {
                     "message_id": "missing-target-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name:",
+                    "text": "#投稿\n作者:",
                 },
                 article("missing-target-article", "缺少目标"),
                 header("unsupported-header", "author-file"),

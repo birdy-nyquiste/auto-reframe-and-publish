@@ -118,7 +118,7 @@ class OptInPublicationTest(unittest.TestCase):
                 {
                     "message_id": f"header-{suffix}",
                     "kind": "text",
-                    "text": f"#投稿\nauthor.name: author-{suffix}",
+                    "text": f"#投稿\n作者: author-{suffix}",
                 },
                 {
                     "message_id": f"article-{suffix}",

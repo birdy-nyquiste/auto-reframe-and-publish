@@ -1,5 +1,6 @@
 ---
 status: accepted
+superseded-by: 0014
 amends: 0004
 ---
 

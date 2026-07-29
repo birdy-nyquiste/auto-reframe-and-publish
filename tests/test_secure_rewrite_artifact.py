@@ -77,7 +77,7 @@ class SecureRewriteArtifactTest(unittest.TestCase):
         body: str = "这是仅作为不可信素材处理的来源正文。",
         media: list[dict[str, Any]] | None = None,
     ) -> None:
-        header = "#投稿\nauthor.name: trusted-author"
+        header = "#投稿\n作者: trusted-author"
         if requirements is not None:
             header += f"\n洗稿指令:\n{requirements}"
         chat = json.loads(self.chat.read_text("utf-8"))

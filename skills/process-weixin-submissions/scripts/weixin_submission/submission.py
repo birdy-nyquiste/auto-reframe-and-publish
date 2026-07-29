@@ -101,39 +101,37 @@ def parse_task_header(text: str) -> TaskHeader:
                 target_id,
             )
         seen_fields.add(field)
-        if field == "文章数":
-            try:
-                article_count = int(value)
-            except ValueError as error:
-                raise TaskHeaderError(
-                    "unsupported_article_count",
-                    "文章数 must be 1 in the current version",
-                    target_id,
-                ) from error
-            if article_count != 1:
-                raise TaskHeaderError(
-                    "unsupported_article_count",
-                    "Only one article is supported in the current version",
-                    target_id,
-                )
-            continue
         if field == "洗稿指令":
             first_line = value
             remainder = "\n".join(lines[index + 1 :]).strip()
             requirements = "\n".join(part for part in (first_line, remainder) if part) or None
             break
+        if field == "author.name":
+            raise TaskHeaderError(
+                "unknown_control_field",
+                "任务头请使用中文字段 作者，不要使用 author.name",
+                target_id,
+            )
         try:
-            path, parsed_value = parse_blog_field(field, value)
+            path, parsed_value = parse_blog_field(
+                "author.name" if field == "作者" else field,
+                value,
+            )
             assign_blog_field(publication_fields, path, parsed_value)
         except BlogFieldError as error:
-            raise TaskHeaderError(error.reason, str(error), target_id) from error
+            message = (
+                "任务头需要提供非空的 作者"
+                if field == "作者" and error.reason == "missing_author_name"
+                else str(error)
+            )
+            raise TaskHeaderError(error.reason, message, target_id) from error
         author = publication_fields.get("author")
         if isinstance(author, dict) and isinstance(author.get("name"), str):
             target_id = author["name"]
 
     if not target_id:
         raise TaskHeaderError(
-            "missing_author_name", "Task header requires a non-empty author.name"
+            "missing_author_name", "任务头需要提供非空的 作者"
         )
     return TaskHeader(target_id, publication_fields, requirements, article_count)
 

@@ -61,7 +61,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 {
                     "message_id": "capture-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: author-capture",
+                    "text": "#投稿\n作者: author-capture",
                 },
                 {
                     "message_id": "capture-article",
@@ -323,7 +323,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 {
                     "message_id": "invalid-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: author-invalid",
+                    "text": "#投稿\n作者: author-invalid",
                 },
                 {
                     "message_id": "invalid-article",
@@ -347,7 +347,7 @@ class CaptureEvidenceTest(unittest.TestCase):
                 {
                     "message_id": "valid-header",
                     "kind": "text",
-                    "text": "#投稿\nauthor.name: author-valid",
+                    "text": "#投稿\n作者: author-valid",
                 },
                 {
                     "message_id": "valid-article",

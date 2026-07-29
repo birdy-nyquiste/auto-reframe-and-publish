@@ -70,7 +70,7 @@ class MacosComputerUseIntakeTest(unittest.TestCase):
                         {
                             "message_id": "header-1",
                             "kind": "text",
-                            "text": "#投稿\nauthor.name: writer-one",
+                            "text": "#投稿\n作者: writer-one",
                         },
                         {
                             "message_id": "article-1",

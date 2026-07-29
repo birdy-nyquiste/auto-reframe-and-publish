@@ -1,0 +1,175 @@
+{"kind":"deck","id":"pr/ux1a92","name":"Deck"}
+{"kind":"layout","layoutId":"027fd488-7209-4198-9d6d-cb032ee71fa6","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"9d59226c-7407-4517-9ad4-039b4a6a6368","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/diw5bj","slide":1,"title":"NYQUISTE · 内容运营","textShapes":4}
+{"kind":"textbox","id":"sh/n25gvut4","slide":1,"name":"cover-kicker","text":"NYQUISTE · 内容运营","textPreview":"NYQUISTE · 内容运营","textChars":15,"textLines":1,"bbox":[42,40,520,42]}
+{"kind":"textbox","id":"sh/83ex4zap","slide":1,"name":"cover-title","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,205,950,150]}
+{"kind":"textbox","id":"sh/94nyx4ba","slide":1,"name":"cover-subtitle","text":"把微信里的投稿需求，转化为可追踪、可控制的 Blog 内容","textPreview":"把微信里的投稿需求，转化为可追踪、可控制的 Blog 内容","textChars":29,"textLines":1,"bbox":[42,430,760,105]}
+{"kind":"shape","id":"sh/a5wf69sf","slide":1,"name":"cover-accent-block","bbox":[1055,84,160,160]}
+{"kind":"textbox","id":"sh/vq5gzet0","slide":1,"name":"cover-date","text":"商业汇报 · 2026.07","textPreview":"商业汇报 · 2026.07","textChars":14,"textLines":1,"bbox":[42,628,360,28]}
+{"kind":"notes","id":"nt/diw5bj","slide":1,"text":"开场只讲业务：这不是一个写作插件，而是一套可运营、可管控的内容秘书处。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/weixin-blog-business-architecture.drawio\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/CONTEXT.md\n[/Sources]"}
+{"kind":"slide","id":"sl/c82w8n","slide":2,"title":"微信内容发布秘书处","textShapes":13}
+{"kind":"textbox","id":"sh/8nudszy9","slide":2,"name":"slide-2-kicker","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,30,380,24]}
+{"kind":"textbox","id":"sh/7m1wzuh4","slide":2,"name":"slide-2-title","text":"当前真正的问题，不是“写一篇文章”","textPreview":"当前真正的问题，不是“写一篇文章”","textChars":17,"textLines":1,"bbox":[42,62,1160,82]}
+{"kind":"textbox","id":"sh/6lsvqpgj","slide":2,"name":"slide-2-number","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1180,662,58,22]}
+{"kind":"textbox","id":"sh/hc3e54z6","slide":2,"name":"problem-claim","text":"需求散落在聊天里，处理依赖个人经验，发布风险难以被组织化管理。","textPreview":"需求散落在聊天里，处理依赖个人经验，发布风险难以被组织化管理。","textChars":31,"textLines":1,"bbox":[42,175,1100,90]}
+{"kind":"textbox","id":"sh/grudwzyl","slide":2,"name":"point-1-num","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[42,340,55,34]}
+{"kind":"shape","id":"sh/vqlw3uh0","slide":2,"name":"point-1-rule","bbox":[42,378,350,0]}
+{"kind":"textbox","id":"sh/upcvupgf","slide":2,"name":"point-1-title","text":"入口非标准","textPreview":"入口非标准","textChars":5,"textLines":1,"bbox":[42,396,350,44]}
+{"kind":"textbox","id":"sh/xgjut0zm","slide":2,"name":"point-1-body","text":"指令、作者信息与 Source 混在消息里，容易遗漏或误读。","textPreview":"指令、作者信息与 Source 混在消息里，容易遗漏或误读。","textChars":30,"textLines":1,"bbox":[42,448,350,92]}
+{"kind":"textbox","id":"sh/wvqdkfyh","slide":2,"name":"point-2-num","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[465,340,55,34]}
+{"kind":"shape","id":"sh/65gjihg3","slide":2,"name":"point-2-rule","bbox":[465,378,350,0]}
+{"kind":"textbox","id":"sh/76p0rmho","slide":2,"name":"point-2-title","text":"过程不可见","textPreview":"过程不可见","textChars":5,"textLines":1,"bbox":[465,396,350,44]}
+{"kind":"textbox","id":"sh/s7y1kry9","slide":2,"name":"point-2-body","text":"内容处理到哪一步、遇到什么阻塞，往往依赖个人记忆。","textPreview":"内容处理到哪一步、遇到什么阻塞，往往依赖个人记忆。","textChars":25,"textLines":1,"bbox":[465,448,350,92]}
+{"kind":"textbox","id":"sh/t87itcze","slide":2,"name":"point-3-num","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[888,340,55,34]}
+{"kind":"shape","id":"sh/u90jmhgz","slide":2,"name":"point-3-rule","bbox":[888,378,350,0]}
+{"kind":"textbox","id":"sh/fa90vmxk","slide":2,"name":"point-3-title","text":"发布不可失控","textPreview":"发布不可失控","textChars":6,"textLines":1,"bbox":[888,396,350,44]}
+{"kind":"textbox","id":"sh/gbi1ory5","slide":2,"name":"point-3-body","text":"内容一旦对外，错误作者、缺图或重复发布都会形成业务风险。","textPreview":"内容一旦对外，错误作者、缺图或重复发布都会形成业务风险。","textChars":28,"textLines":1,"bbox":[888,448,350,92]}
+{"kind":"notes","id":"nt/c82w8n","slide":2,"text":"这一页不讨论技术复杂度，只说明为什么需要秘书处：把个人经验变成组织流程。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/CONTEXT.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/skills/process-weixin-submissions/SKILL.md\n[/Sources]"}
+{"kind":"slide","id":"sl/acdcmj","slide":3,"title":"微信内容发布秘书处","textShapes":21}
+{"kind":"textbox","id":"sh/snqxgj6h","slide":3,"name":"slide-3-kicker","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,30,380,24]}
+{"kind":"textbox","id":"sh/rmhgnepw","slide":3,"name":"slide-3-title","text":"秘书处把用户需求变成一条可管理的内容链路","textPreview":"秘书处把用户需求变成一条可管理的内容链路","textChars":20,"textLines":1,"bbox":[42,62,1160,82]}
+{"kind":"textbox","id":"sh/ql8fe9ob","slide":3,"name":"slide-3-number","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1180,662,58,22]}
+{"kind":"shape","id":"sh/1sjydo7y","slide":3,"name":"architecture-user-arrow","bbox":[235,300,64,30]}
+{"kind":"shape","id":"sh/0rahkj6d","slide":3,"name":"architecture-agent-pull-arrow","bbox":[574,390,48,18]}
+{"kind":"shape","id":"sh/fqhgbeps","slide":3,"name":"architecture-blog-arrow","bbox":[1010,300,70,30]}
+{"kind":"shape","id":"sh/ep8fito7","slide":3,"name":"architecture-agent-repo-line","bbox":[815,448,0,53]}
+{"kind":"shape","id":"sh/pgjyh87u","slide":3,"name":"architecture-user-area","bbox":[45,180,185,280]}
+{"kind":"textbox","id":"sh/ofaho369","slide":3,"name":"architecture-user-title","text":"用户","textPreview":"用户","textChars":2,"textLines":1,"bbox":[68,205,130,38]}
+{"kind":"textbox","id":"sh/29obatc3","slide":3,"name":"architecture-user-body","text":"发文需求\nSource 材料\n必要补充信息","textPreview":"发文需求 | Source 材料 | 必要补充信息","textChars":21,"textLines":3,"bbox":[68,275,135,120]}
+{"kind":"shape","id":"sh/3axcjydo","slide":3,"name":"architecture-secretariat-area","bbox":[300,150,705,385]}
+{"kind":"textbox","id":"sh/4b6tc3u9","slide":3,"name":"architecture-secretariat-title","text":"秘书处","textPreview":"秘书处","textChars":3,"textLines":1,"bbox":[326,170,220,40]}
+{"kind":"textbox","id":"sh/pcfulovu","slide":3,"name":"architecture-secretariat-subtitle","text":"接收需求并转化为可发布内容","textPreview":"接收需求并转化为可发布内容","textChars":13,"textLines":1,"bbox":[326,207,330,30]}
+{"kind":"shape","id":"sh/qdobetcf","slide":3,"name":"architecture-wechat","bbox":[335,250,250,195]}
+{"kind":"textbox","id":"sh/ryxcnytk","slide":3,"name":"architecture-wechat-title","text":"微信客户端","textPreview":"微信客户端","textChars":5,"textLines":1,"bbox":[356,267,190,32]}
+{"kind":"shape","id":"sh/cz6dg3u5","slide":3,"name":"architecture-chat","bbox":[356,320,208,42]}
+{"kind":"textbox","id":"sh/d0fup8bq","slide":3,"name":"architecture-chat-text","text":"用户会话 · 接收与沟通","textPreview":"用户会话 · 接收与沟通","textChars":12,"textLines":1,"bbox":[370,330,180,22]}
+{"kind":"shape","id":"sh/6hkb29cv","slide":3,"name":"architecture-fta","bbox":[356,377,208,42]}
+{"kind":"textbox","id":"sh/72dcbedg","slide":3,"name":"architecture-fta-text","text":"文件传输助手 · 任务入口","textPreview":"文件传输助手 · 任务入口","textChars":13,"textLines":1,"bbox":[368,387,186,22]}
+{"kind":"shape","id":"sh/vm983at8","slide":3,"name":"architecture-agent","bbox":[630,225,335,220]}
+{"kind":"textbox","id":"sh/al0ra5sn","slide":3,"name":"architecture-agent-title","text":"Agent","textPreview":"Agent","textChars":5,"textLines":1,"bbox":[653,244,150,32]}
+{"kind":"shape","id":"sh/x8rq50be","slide":3,"name":"architecture-agent-item-1","bbox":[653,292,288,29]}
+{"kind":"textbox","id":"sh/wni9cfat","slide":3,"name":"architecture-agent-item-text-1","text":"识别投稿任务","textPreview":"识别投稿任务","textChars":6,"textLines":1,"bbox":[665,298,260,18]}
+{"kind":"shape","id":"sh/nip8fqtc","slide":3,"name":"architecture-agent-item-2","bbox":[653,328,288,29]}
+{"kind":"textbox","id":"sh/mhgr6lsr","slide":3,"name":"architecture-agent-item-text-2","text":"抓取原文与图片","textPreview":"抓取原文与图片","textChars":7,"textLines":1,"bbox":[665,334,260,18]}
+{"kind":"shape","id":"sh/9krqh0b2","slide":3,"name":"architecture-agent-item-3","bbox":[653,364,288,29]}
+{"kind":"textbox","id":"sh/8ji98vax","slide":3,"name":"architecture-agent-item-text-3","text":"洗稿并生成文章","textPreview":"洗稿并生成文章","textChars":7,"textLines":1,"bbox":[665,370,260,18]}
+{"kind":"shape","id":"sh/7etsbu9g","slide":3,"name":"architecture-agent-item-4","bbox":[653,400,288,29]}
+{"kind":"textbox","id":"sh/6dkripsv","slide":3,"name":"architecture-agent-item-text-4","text":"按明确授权发布","textPreview":"按明确授权发布","textChars":7,"textLines":1,"bbox":[665,406,260,18]}
+{"kind":"shape","id":"sh/47uxwnm1","slide":3,"name":"architecture-repository","bbox":[335,476,630,46]}
+{"kind":"textbox","id":"sh/583epsnm","slide":3,"name":"architecture-repository-title","text":"本地任务库","textPreview":"本地任务库","textChars":5,"textLines":1,"bbox":[355,487,150,23]}
+{"kind":"textbox","id":"sh/ilsfud4b","slide":3,"name":"architecture-repository-body","text":"任务 · 素材 · 洗稿产物 · 发布记录","textPreview":"任务 · 素材 · 洗稿产物 · 发布记录","textChars":21,"textLines":1,"bbox":[510,488,390,22]}
+{"kind":"shape","id":"sh/3mlwni5g","slide":3,"name":"architecture-blog","bbox":[1090,255,125,125]}
+{"kind":"textbox","id":"sh/sbux07md","slide":3,"name":"architecture-blog-text","text":"Blog","textPreview":"Blog","textChars":4,"textLines":1,"bbox":[1118,296,70,35]}
+{"kind":"textbox","id":"sh/dc3ytcny","slide":3,"name":"architecture-pull-label","text":"← 主动抓取","textPreview":"← 主动抓取","textChars":6,"textLines":1,"bbox":[568,337,110,22]}
+{"kind":"textbox","id":"sh/q9cfyx47","slide":3,"name":"architecture-publish-label","text":"发布","textPreview":"发布","textChars":2,"textLines":1,"bbox":[1025,334,52,22]}
+{"kind":"textbox","id":"sh/ralwr25s","slide":3,"name":"architecture-bottom-line","text":"统一入口  ·  主动处理  ·  明确授权  ·  全程留档","textPreview":"统一入口  ·  主动处理  ·  明确授权  ·  全程留档","textChars":31,"textLines":1,"bbox":[355,578,620,30]}
+{"kind":"notes","id":"nt/acdcmj","slide":3,"text":"架构重点：秘书处只有微信客户端和 Agent 两个业务组件；本地任务库是独立留档底座。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/weixin-blog-business-architecture.drawio\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/CONTEXT.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/task-repository-layout.md\n[/Sources]"}
+{"kind":"slide","id":"sl/v05fon","slide":4,"title":"微信内容发布秘书处","textShapes":19}
+{"kind":"textbox","id":"sh/6xcnit8b","slide":4,"name":"slide-4-kicker","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,30,380,24]}
+{"kind":"textbox","id":"sh/t0n6d872","slide":4,"name":"slide-4-title","text":"Agent 承担五项业务动作，替代重复且易错的手工串联","textPreview":"Agent 承担五项业务动作，替代重复且易错的手工串联","textChars":27,"textLines":1,"bbox":[42,62,1160,82]}
+{"kind":"textbox","id":"sh/sze5k3qh","slide":4,"name":"slide-4-number","text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1180,662,58,22]}
+{"kind":"shape","id":"sh/fm5ofips","slide":4,"name":"agent-flow-line","bbox":[95,346,1085,0]}
+{"kind":"shape","id":"sh/u1wnmd8n","slide":4,"name":"agent-step-dot-1","bbox":[65,330,32,32]}
+{"kind":"textbox","id":"sh/hon6hs7y","slide":4,"name":"agent-step-index-1","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[65,336,32,16]}
+{"kind":"textbox","id":"sh/gne5onqd","slide":4,"name":"agent-step-title-1","text":"识别任务","textPreview":"识别任务","textChars":4,"textLines":1,"bbox":[65,392,190,40]}
+{"kind":"textbox","id":"sh/vq1o3e9o","slide":4,"name":"agent-step-body-1","text":"从文件传输助手中识别投稿指令与 Source","textPreview":"从文件传输助手中识别投稿指令与 Source","textChars":22,"textLines":1,"bbox":[65,445,190,95]}
+{"kind":"shape","id":"sh/a5sna983","slide":4,"name":"agent-step-dot-2","bbox":[307,330,32,32]}
+{"kind":"textbox","id":"sh/kjuxoja5","slide":4,"name":"agent-step-index-2","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[307,336,32,16]}
+{"kind":"textbox","id":"sh/5k3yxora","slide":4,"name":"agent-step-title-2","text":"抓取内容","textPreview":"抓取内容","textChars":4,"textLines":1,"bbox":[307,392,190,40]}
+{"kind":"textbox","id":"sh/ixcfmtsz","slide":4,"name":"agent-step-body-2","text":"获取正文、图片及来源信息","textPreview":"获取正文、图片及来源信息","textChars":12,"textLines":1,"bbox":[307,445,190,95]}
+{"kind":"shape","id":"sh/jylgve9k","slide":4,"name":"agent-step-dot-3","bbox":[549,330,32,32]}
+{"kind":"textbox","id":"sh/snuxs3a1","slide":4,"name":"agent-step-index-3","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[549,336,32,16]}
+{"kind":"textbox","id":"sh/tony18rm","slide":4,"name":"agent-step-title-3","text":"洗稿","textPreview":"洗稿","textChars":2,"textLines":1,"bbox":[549,392,190,40]}
+{"kind":"textbox","id":"sh/6lcfqtsv","slide":4,"name":"agent-step-body-3","text":"按任务指令或默认规则生成文章","textPreview":"按任务指令或默认规则生成文章","textChars":14,"textLines":1,"bbox":[549,445,190,95]}
+{"kind":"shape","id":"sh/7mlgzy9g","slide":4,"name":"agent-step-dot-4","bbox":[791,330,32,32]}
+{"kind":"textbox","id":"sh/8raxgzax","slide":4,"name":"agent-step-index-4","text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[791,336,32,16]}
+{"kind":"textbox","id":"sh/9sjep4ri","slide":4,"name":"agent-step-title-4","text":"本地留档","textPreview":"本地留档","textChars":4,"textLines":1,"bbox":[791,392,190,40]}
+{"kind":"textbox","id":"sh/pobet036","slide":4,"name":"agent-step-body-4","text":"持续记录任务、素材、产物与状态","textPreview":"持续记录任务、素材、产物与状态","textChars":15,"textLines":1,"bbox":[791,445,190,95]}
+{"kind":"shape","id":"sh/on2dkv2l","slide":4,"name":"agent-step-dot-5","bbox":[1033,330,32,32]}
+{"kind":"textbox","id":"sh/3mtwrql0","slide":4,"name":"agent-step-index-5","text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1033,336,32,16]}
+{"kind":"textbox","id":"sh/2lkvilkf","slide":4,"name":"agent-step-title-5","text":"发布","textPreview":"发布","textChars":2,"textLines":1,"bbox":[1033,392,190,40]}
+{"kind":"textbox","id":"sh/xcbex032","slide":4,"name":"agent-step-body-5","text":"仅在明确授权后提交 Blog","textPreview":"仅在明确授权后提交 Blog","textChars":14,"textLines":1,"bbox":[1033,445,190,95]}
+{"kind":"textbox","id":"sh/cr2dof2h","slide":4,"name":"agent-flow-callout","text":"发布不是默认动作，而是独立的管理授权。","textPreview":"发布不是默认动作，而是独立的管理授权。","textChars":19,"textLines":1,"bbox":[42,190,760,62]}
+{"kind":"notes","id":"nt/v05fon","slide":4,"text":"五项动作来自项目的真实 Skill，不是泛化的 AI 内容流程。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/skills/process-weixin-submissions/SKILL.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/adr/0002-use-one-portable-end-to-end-skill.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/adr/0009-separate-content-work-from-opt-in-publication.md\n[/Sources]"}
+{"kind":"slide","id":"sl/8can7t","slide":5,"title":"微信内容发布秘书处","textShapes":15}
+{"kind":"textbox","id":"sh/5knydgj2","slide":5,"name":"slide-5-kicker","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,30,380,24]}
+{"kind":"textbox","id":"sh/ihwz210r","slide":5,"name":"slide-5-title","text":"价值不在“更快写稿”，而在把内容运营变成组织能力","textPreview":"价值不在“更快写稿”，而在把内容运营变成组织能力","textChars":24,"textLines":1,"bbox":[42,62,1160,82]}
+{"kind":"textbox","id":"sh/3i5gb61c","slide":5,"name":"slide-5-number","text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1180,662,58,22]}
+{"kind":"textbox","id":"sh/gvux0ril","slide":5,"name":"point-1-num","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[42,205,55,34]}
+{"kind":"shape","id":"sh/hg3y9wj6","slide":5,"name":"point-1-rule","bbox":[42,243,545,0]}
+{"kind":"textbox","id":"sh/utcfy10f","slide":5,"name":"point-1-title","text":"统一入口","textPreview":"统一入口","textChars":4,"textLines":1,"bbox":[42,261,545,44]}
+{"kind":"textbox","id":"sh/vulg7610","slide":5,"name":"point-1-body","text":"员工继续使用熟悉的微信环境，投稿需求集中进入同一条处理链路。","textPreview":"员工继续使用熟悉的微信环境，投稿需求集中进入同一条处理链路。","textChars":30,"textLines":1,"bbox":[42,313,545,92]}
+{"kind":"textbox","id":"sh/0byhcvip","slide":5,"name":"point-2-num","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[665,205,55,34]}
+{"kind":"shape","id":"sh/1c7yl0ja","slide":5,"name":"point-2-rule","bbox":[665,243,545,0]}
+{"kind":"textbox","id":"sh/x0rilgju","slide":5,"name":"point-2-title","text":"标准处理","textPreview":"标准处理","textChars":4,"textLines":1,"bbox":[665,261,545,44]}
+{"kind":"textbox","id":"sh/wzihcb29","slide":5,"name":"point-2-body","text":"每条投稿都经历任务识别、内容抓取、洗稿与结果确认。","textPreview":"每条投稿都经历任务识别、内容抓取、洗稿与结果确认。","textChars":25,"textLines":1,"bbox":[665,313,545,92]}
+{"kind":"textbox","id":"sh/vy90j61o","slide":5,"name":"point-3-num","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[42,440,55,34]}
+{"kind":"shape","id":"sh/ax0za1k3","slide":5,"name":"point-3-rule","bbox":[42,478,545,0]}
+{"kind":"textbox","id":"sh/9crihwji","slide":5,"name":"point-3-title","text":"可追溯","textPreview":"可追溯","textChars":3,"textLines":1,"bbox":[42,496,545,44]}
+{"kind":"textbox","id":"sh/obyh8r2x","slide":5,"name":"point-3-body","text":"任务、素材、产物和发布结果形成连续档案，便于复盘与交接。","textPreview":"任务、素材、产物和发布结果形成连续档案，便于复盘与交接。","textChars":28,"textLines":1,"bbox":[42,548,545,92]}
+{"kind":"textbox","id":"sh/nap0fmlc","slide":5,"name":"point-4-num","text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[665,440,55,34]}
+{"kind":"shape","id":"sh/m9gz6hk7","slide":5,"name":"point-4-rule","bbox":[665,478,545,0]}
+{"kind":"textbox","id":"sh/tsbit0jm","slide":5,"name":"point-4-title","text":"可控发布","textPreview":"可控发布","textChars":4,"textLines":1,"bbox":[665,496,545,44]}
+{"kind":"textbox","id":"sh/s72hkv2h","slide":5,"name":"point-4-body","text":"自动化负责执行，管理者保留是否公开发布的最终决定。","textPreview":"自动化负责执行，管理者保留是否公开发布的最终决定。","textChars":25,"textLines":1,"bbox":[665,548,545,92]}
+{"kind":"notes","id":"nt/8can7t","slide":5,"text":"商业价值是组织能力：入口统一、标准一致、过程可追溯、发布可控制。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/CONTEXT.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/task-repository-layout.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/adr/0009-separate-content-work-from-opt-in-publication.md\n[/Sources]"}
+{"kind":"slide","id":"sl/h0wlff","slide":6,"title":"微信内容发布秘书处","textShapes":17}
+{"kind":"textbox","id":"sh/fih4r2do","slide":6,"name":"slide-6-kicker","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,30,380,24]}
+{"kind":"textbox","id":"sh/gjqlk7u9","slide":6,"name":"slide-6-title","text":"自动化越深入，越需要把权限与责任留在人手里","textPreview":"自动化越深入，越需要把权限与责任留在人手里","textChars":21,"textLines":1,"bbox":[42,62,1160,82]}
+{"kind":"textbox","id":"sh/hkzmtsvu","slide":6,"name":"slide-6-number","text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1180,662,58,22]}
+{"kind":"textbox","id":"sh/6do3edw7","slide":6,"name":"governance-claim","text":"Agent 可以连续执行，但不能自行扩大任务范围或发布权限。","textPreview":"Agent 可以连续执行，但不能自行扩大任务范围或发布权限。","textChars":30,"textLines":1,"bbox":[42,185,590,110]}
+{"kind":"textbox","id":"sh/7ex4nids","slide":6,"name":"governance-explainer","text":"秘书处的核心不是“无人值守”，而是让人工判断发生在正确的节点。","textPreview":"秘书处的核心不是“无人值守”，而是让人工判断发生在正确的节点。","textChars":31,"textLines":1,"bbox":[42,330,520,105]}
+{"kind":"shape","id":"sh/sf6lgnex","slide":6,"name":"governance-check-1","bbox":[720,188,32,32]}
+{"kind":"textbox","id":"sh/tgfmpsvi","slide":6,"name":"governance-checkmark-1","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[727,192,18,20]}
+{"kind":"textbox","id":"sh/q9s3qhcb","slide":6,"name":"governance-title-1","text":"发布默认关闭","textPreview":"发布默认关闭","textChars":6,"textLines":1,"bbox":[775,185,390,34]}
+{"kind":"textbox","id":"sh/ra14zmdw","slide":6,"name":"governance-body-1","text":"没有明确授权，就不调用 Blog。","textPreview":"没有明确授权，就不调用 Blog。","textChars":17,"textLines":1,"bbox":[775,225,420,38]}
+{"kind":"shape","id":"sh/zihgnqdc","slide":6,"name":"governance-check-2","bbox":[720,290,32,32]}
+{"kind":"textbox","id":"sh/yx8ze5wr","slide":6,"name":"governance-checkmark-2","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[727,294,18,20]}
+{"kind":"textbox","id":"sh/lkzyp0v2","slide":6,"name":"governance-title-2","text":"处理与发布分离","textPreview":"处理与发布分离","textChars":7,"textLines":1,"bbox":[775,287,390,34]}
+{"kind":"textbox","id":"sh/kjqhgveh","slide":6,"name":"governance-body-2","text":"洗稿完成不代表必须公开。","textPreview":"洗稿完成不代表必须公开。","textChars":12,"textLines":1,"bbox":[775,327,420,38]}
+{"kind":"shape","id":"sh/7mhgrad8","slide":6,"name":"governance-check-3","bbox":[720,392,32,32]}
+{"kind":"textbox","id":"sh/ml8zi5cn","slide":6,"name":"governance-checkmark-3","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[727,396,18,20]}
+{"kind":"textbox","id":"sh/tojytkve","slide":6,"name":"governance-title-3","text":"不完整任务不猜测","textPreview":"不完整任务不猜测","textChars":8,"textLines":1,"bbox":[775,389,390,34]}
+{"kind":"textbox","id":"sh/8nqhkfut","slide":6,"name":"governance-body-3","text":"缺少关键信息时，回到人工补充。","textPreview":"缺少关键信息时，回到人工补充。","textChars":15,"textLines":1,"bbox":[775,429,420,38]}
+{"kind":"shape","id":"sh/vq1gvad4","slide":6,"name":"governance-check-4","bbox":[720,494,32,32]}
+{"kind":"textbox","id":"sh/upszmpcz","slide":6,"name":"governance-checkmark-4","text":"✓","textPreview":"✓","textChars":1,"textLines":1,"bbox":[727,498,18,20]}
+{"kind":"textbox","id":"sh/qxwbad03","slide":6,"name":"governance-title-4","text":"中断可恢复","textPreview":"中断可恢复","textChars":5,"textLines":1,"bbox":[775,491,390,34]}
+{"kind":"textbox","id":"sh/ry5s3i1o","slide":6,"name":"governance-body-4","text":"历史记录保留，避免盲目重复执行。","textPreview":"历史记录保留，避免盲目重复执行。","textChars":16,"textLines":1,"bbox":[775,531,420,38]}
+{"kind":"shape","id":"sh/cjetcni9","slide":6,"name":"governance-divider","bbox":[660,175,0,410]}
+{"kind":"notes","id":"nt/h0wlff","slide":6,"text":"向管理层强调：自动化是执行能力，授权与责任仍由人掌握。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/adr/0009-separate-content-work-from-opt-in-publication.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/skills/process-weixin-submissions/SKILL.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/task-repository-layout.md\n[/Sources]"}
+{"kind":"slide","id":"sl/bj5f7m","slide":7,"title":"微信内容发布秘书处","textShapes":12}
+{"kind":"textbox","id":"sh/jy5svixo","slide":7,"name":"slide-7-kicker","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,30,380,24]}
+{"kind":"textbox","id":"sh/kzetone9","slide":7,"name":"slide-7-title","text":"核心链路已经跑通，但项目仍处于受控验证阶段","textPreview":"核心链路已经跑通，但项目仍处于受控验证阶段","textChars":21,"textLines":1,"bbox":[42,62,1160,82]}
+{"kind":"textbox","id":"sh/l07axsfe","slide":7,"name":"slide-7-number","text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1180,662,58,22]}
+{"kind":"shape","id":"sh/61gbqxwz","slide":7,"name":"progress-verified-area","bbox":[42,185,550,390]}
+{"kind":"textbox","id":"sh/72psz2xk","slide":7,"name":"progress-verified-title","text":"已验证","textPreview":"已验证","textChars":3,"textLines":1,"bbox":[72,214,200,42]}
+{"kind":"textbox","id":"sh/83yts7e5","slide":7,"name":"verified-item-1","text":"✓  真实微信文章完整抓取","textPreview":"✓  真实微信文章完整抓取","textChars":13,"textLines":1,"bbox":[76,300,450,40]}
+{"kind":"textbox","id":"sh/t47a1cfq","slide":7,"name":"verified-item-2","text":"✓  真实 Agent 洗稿并生成产物","textPreview":"✓  真实 Agent 洗稿并生成产物","textChars":19,"textLines":1,"bbox":[76,374,450,40]}
+{"kind":"textbox","id":"sh/u5gbuxwb","slide":7,"name":"verified-item-3","text":"✓  真实 Blog 自动发布并返回可访问地址","textPreview":"✓  真实 Blog 自动发布并返回可访问地址","textChars":23,"textLines":1,"bbox":[76,448,450,40]}
+{"kind":"shape","id":"sh/f6ps32xw","slide":7,"name":"progress-remaining-area","bbox":[640,185,598,390]}
+{"kind":"textbox","id":"sh/7ul4b2l8","slide":7,"name":"progress-remaining-title","text":"正式上线前仍需完成","textPreview":"正式上线前仍需完成","textChars":9,"textLines":1,"bbox":[672,214,350,42]}
+{"kind":"textbox","id":"sh/6tc32xkn","slide":7,"name":"remaining-item-1","text":"○  多任务真实场景矩阵","textPreview":"○  多任务真实场景矩阵","textChars":12,"textLines":1,"bbox":[676,300,470,40]}
+{"kind":"textbox","id":"sh/tw3mdc3y","slide":7,"name":"remaining-item-2","text":"○  正式洗稿规范审批","textPreview":"○  正式洗稿规范审批","textChars":11,"textLines":1,"bbox":[676,374,470,40]}
+{"kind":"textbox","id":"sh/svul472d","slide":7,"name":"remaining-item-3","text":"○  组合失败与重试验收","textPreview":"○  组合失败与重试验收","textChars":12,"textLines":1,"bbox":[676,448,470,40]}
+{"kind":"textbox","id":"sh/jql472lw","slide":7,"name":"progress-status","text":"当前判断：核心能力已验证，尚未正式上线","textPreview":"当前判断：核心能力已验证，尚未正式上线","textChars":19,"textLines":1,"bbox":[42,610,880,40]}
+{"kind":"notes","id":"nt/bj5f7m","slide":7,"text":"不要把“单条真实链路跑通”讲成“系统已 ready”。仓库的正式状态仍是 core_validated。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/validation/2026-07-24-macos-wechat-full-article-tracer.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/validation/2026-07-24-wechat-auto-publication-tracer.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/validation/2026-07-24-live-publication-acceptance.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/content-rewrite-policy.md\n[/Sources]"}
+{"kind":"slide","id":"sl/lburxn","slide":8,"title":"微信内容发布秘书处","textShapes":14}
+{"kind":"textbox","id":"sh/v6lcfyxc","slide":8,"name":"slide-8-kicker","text":"微信内容发布秘书处","textPreview":"微信内容发布秘书处","textChars":9,"textLines":1,"bbox":[42,30,380,24]}
+{"kind":"textbox","id":"sh/g7ud8jex","slide":8,"name":"slide-8-title","text":"建议进入小范围试运行，而不是直接全面上线","textPreview":"建议进入小范围试运行，而不是直接全面上线","textChars":20,"textLines":1,"bbox":[42,62,1160,82]}
+{"kind":"textbox","id":"sh/h83uhof2","slide":8,"name":"slide-8-number","text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1180,662,58,22]}
+{"kind":"shape","id":"sh/6hsb29wf","slide":8,"name":"pilot-timeline","bbox":[110,350,1050,0]}
+{"kind":"shape","id":"sh/7i1cbex0","slide":8,"name":"pilot-dot-1","bbox":[105,332,36,36]}
+{"kind":"textbox","id":"sh/8jut4jel","slide":8,"name":"pilot-num-1","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[105,339,36,18]}
+{"kind":"textbox","id":"sh/t43udof6","slide":8,"name":"pilot-title-1","text":"限定试运行范围","textPreview":"限定试运行范围","textChars":7,"textLines":1,"bbox":[105,398,285,44]}
+{"kind":"textbox","id":"sh/ydsby9wj","slide":8,"name":"pilot-body-1","text":"固定用户、固定运营人员、有限内容类型","textPreview":"固定用户、固定运营人员、有限内容类型","textChars":18,"textLines":1,"bbox":[105,455,285,88]}
+{"kind":"shape","id":"sh/je1c7ex4","slide":8,"name":"pilot-dot-2","bbox":[485,332,36,36]}
+{"kind":"textbox","id":"sh/bi9g729c","slide":8,"name":"pilot-num-2","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[485,339,36,18]}
+{"kind":"textbox","id":"sh/ah0fex87","slide":8,"name":"pilot-title-2","text":"补齐管理规则","textPreview":"补齐管理规则","textChars":6,"textLines":1,"bbox":[485,398,285,44]}
+{"kind":"textbox","id":"sh/xkry9cri","slide":8,"name":"pilot-body-2","text":"洗稿边界、发布权限、异常处理与责任人","textPreview":"洗稿边界、发布权限、异常处理与责任人","textChars":18,"textLines":1,"bbox":[485,455,285,88]}
+{"kind":"shape","id":"sh/wjixg7qx","slide":8,"name":"pilot-dot-3","bbox":[865,332,36,36]}
+{"kind":"textbox","id":"sh/j69gbmpo","slide":8,"name":"pilot-num-3","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[865,339,36,18]}
+{"kind":"textbox","id":"sh/yl0zih83","slide":8,"name":"pilot-title-3","text":"达成上线门槛","textPreview":"达成上线门槛","textChars":6,"textLines":1,"bbox":[865,398,285,44]}
+{"kind":"textbox","id":"sh/l8bydc7u","slide":8,"name":"pilot-body-3","text":"多任务验收通过，关键风险关闭并完成复盘","textPreview":"多任务验收通过，关键风险关闭并完成复盘","textChars":19,"textLines":1,"bbox":[865,455,285,88]}
+{"kind":"textbox","id":"sh/k7ihk7q9","slide":8,"name":"pilot-decision","text":"需要管理层确认：试运行范围  ·  内容规范负责人  ·  发布授权人","textPreview":"需要管理层确认：试运行范围  ·  内容规范负责人  ·  发布授权人","textChars":35,"textLines":1,"bbox":[42,190,1130,70]}
+{"kind":"textbox","id":"sh/zapgzi9k","slide":8,"name":"pilot-close","text":"目标：先形成稳定的运营闭环，再扩大使用范围。","textPreview":"目标：先形成稳定的运营闭环，再扩大使用范围。","textChars":22,"textLines":1,"bbox":[42,610,760,40]}
+{"kind":"notes","id":"nt/lburxn","slide":8,"text":"结束时争取三个管理决策：试运行范围、内容规范负责人、发布授权人。\n\n[Sources]\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/validation/2026-07-24-wechat-auto-publication-tracer.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/content-rewrite-policy.md\n- /Users/birdy/NyquisteProjects/weixin-blog-publish/docs/adr/0009-separate-content-work-from-opt-in-publication.md\n[/Sources]"}

@@ -1,0 +1,17 @@
+Communication job:
+By the end, management should understand that the WeChat-to-Blog secretariat is
+an operational capability, not merely a writing tool, and should approve a
+controlled pilot rather than a full launch.
+
+Primary local sources:
+- CONTEXT.md: canonical domain language and business boundaries.
+- docs/weixin-blog-business-architecture.drawio: user-approved business architecture.
+- skills/process-weixin-submissions/SKILL.md: actual workflow capabilities.
+- docs/adr/0002-use-one-portable-end-to-end-skill.md: one end-to-end operational flow.
+- docs/adr/0009-separate-content-work-from-opt-in-publication.md: explicit publication authorization.
+- docs/task-repository-layout.md: local task repository scope and audit records.
+- docs/validation/2026-07-24-macos-wechat-full-article-tracer.md: real WeChat capture and rewrite evidence.
+- docs/validation/2026-07-24-wechat-auto-publication-tracer.md: real automatic publication evidence.
+- docs/content-rewrite-policy.md: formal rewrite policy remains pending.
+
+No external images, market statistics, or invented performance metrics are used.

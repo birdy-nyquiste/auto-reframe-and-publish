@@ -1,0 +1,360 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/sfz89j",
+    "id": "sfz89j",
+    "slide": 1,
+    "layoutId": "6e31cde8-b183-4f70-89c9-a9541c58e1a7",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "e457e6d7-405d-41ac-a629-24f8881e8222",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#FFFFFF",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Arial"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "6e31cde8-b183-4f70-89c9-a9541c58e1a7",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "e457e6d7-405d-41ac-a629-24f8881e8222",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "e457e6d7-405d-41ac-a629-24f8881e8222",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/q5gnax4n",
+      "id": "1",
+      "name": "cover-kicker",
+      "bbox": [
+        42,
+        40,
+        650,
+        42
+      ],
+      "geometry": "rect",
+      "text": "NYQUISTE AI 全球全家桶 · 组织运营",
+      "textPreview": "NYQUISTE AI 全球全家桶 · 组织运营",
+      "resolvedFontSize": 22,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 22,
+        "typeface": "Arial",
+        "color": "#3D8DFF",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "NYQUISTE AI 全球全家桶 · 组织运营"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "NYQUISTE AI 全球全家桶 · 组织运营",
+          "resolvedTextStyle": {
+            "fontSize": 22,
+            "typeface": "Arial",
+            "color": "#3D8DFF",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "NYQUISTE AI 全球全家桶 · 组织运营",
+              "fontSize": 22,
+              "typeface": "Arial",
+              "color": "#3D8DFF",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/d876lsne",
+      "id": "2",
+      "name": "cover-title",
+      "bbox": [
+        42,
+        205,
+        950,
+        150
+      ],
+      "geometry": "rect",
+      "text": "微信内容发布秘书处",
+      "textPreview": "微信内容发布秘书处",
+      "resolvedFontSize": 66,
+      "resolvedTextStyle": {
+        "anchor": 3,
+        "fontSize": 66,
+        "typeface": "Arial",
+        "color": "#0A0A0A",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "bottom",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "微信内容发布秘书处"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "微信内容发布秘书处",
+          "resolvedTextStyle": {
+            "fontSize": 66,
+            "typeface": "Arial",
+            "color": "#0A0A0A",
+            "bold": true,
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "微信内容发布秘书处",
+              "fontSize": 66,
+              "typeface": "Arial",
+              "color": "#0A0A0A",
+              "bold": true,
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/c7y5c7mt",
+      "id": "3",
+      "name": "cover-subtitle",
+      "bbox": [
+        42,
+        430,
+        760,
+        105
+      ],
+      "geometry": "rect",
+      "text": "把投稿贡献转化为可追踪、可控制的组织内容与用户资格依据",
+      "textPreview": "把投稿贡献转化为可追踪、可控制的组织内容与用户资格依据",
+      "resolvedFontSize": 28,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 28,
+        "typeface": "Arial",
+        "color": "#62666D",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "shrinkText",
+        "autoFitScale": 1,
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "把投稿贡献转化为可追踪、可控制的组织内容与用户资格"
+          },
+          {
+            "index": 2,
+            "text": "依据"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "把投稿贡献转化为可追踪、可控制的组织内容与用户资格依据",
+          "resolvedTextStyle": {
+            "fontSize": 28,
+            "typeface": "Arial",
+            "color": "#62666D",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "把投稿贡献转化为可追踪、可控制的组织内容与用户资格依据",
+              "fontSize": 28,
+              "typeface": "Arial",
+              "color": "#62666D",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/zapon254",
+      "id": "4",
+      "name": "cover-accent-block",
+      "bbox": [
+        1055,
+        84,
+        160,
+        160
+      ],
+      "geometry": "roundRect",
+      "fillColor": "#6DCBF4",
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/y9gnex4j",
+      "id": "5",
+      "name": "cover-date",
+      "bbox": [
+        42,
+        628,
+        360,
+        28
+      ],
+      "geometry": "rect",
+      "text": "商业汇报 · 2026.07",
+      "textPreview": "商业汇报 · 2026.07",
+      "resolvedFontSize": 15.33,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 16,
+        "typeface": "Arial",
+        "color": "#62666D",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "shrinkText",
+        "autoFitScale": 0.96,
+        "insets": {
+          "top": 4.8,
+          "right": 9.6,
+          "bottom": 4.8,
+          "left": 9.6
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "商业汇报 · 2026.07"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "商业汇报 · 2026.07",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Arial",
+            "color": "#62666D",
+            "alignment": "left"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "商业汇报 · 2026.07",
+              "fontSize": 16,
+              "typeface": "Arial",
+              "color": "#62666D",
+              "alignment": "left"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

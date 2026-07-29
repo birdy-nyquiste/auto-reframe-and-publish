@@ -15,6 +15,22 @@ Run this Skill only after an operator explicitly requests an operation. Never st
 - `retry`: explicitly re-enable one task whose typed blocker is `retry_exhausted`, or safely upgrade an allowlisted legacy Codex startup/timeout failure.
 - `publish`: explicitly publish one existing `rewrite_artifact_ready` task. The default image policy preserves the local-image safety block. Use `--image-policy omit` only when the operator explicitly authorizes a text-only public version, or `--image-policy upload` when the operator authorizes Public Blob upload and image publication. Artifact v2 already contains the rewrite Agent's explicit cover selection; `--cover-image` remains only for compatible publication of legacy v1 artifacts.
 
+## Apply operator-facing defaults
+
+Keep invocations short. When the operator omits implementation parameters:
+
+- Use `$HOME/weixin-blog-publish-data` as the task repository.
+- Treat “初始化” as `initialize` with real macOS Computer Use.
+- Treat “执行任务” as `run` with real macOS Computer Use and the real Codex generator.
+- Treat “执行任务，自动发布” as explicit authorization for `run --publication auto --image-policy upload`; load `<project-root>/.env` and `<project-root>/config/blog.lsforum.json`.
+- Treat “执行任务，不发布” as `run --publication none`.
+
+Resolve `<project-root>` as the repository containing the canonical
+`skills/process-weixin-submissions` directory. If a required default file or
+credential is missing, return `needs_configuration`; do not silently downgrade
+or widen the requested operation. An earlier automatic-publication
+authorization never applies to a later run.
+
 ## Execute the deterministic entrypoint
 
 Use the bundled script with the Python available to the running Agent:

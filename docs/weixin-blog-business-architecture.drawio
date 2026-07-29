@@ -1,0 +1,74 @@
+<mxfile host="app.diagrams.net" modified="2026-07-27T00:00:00.000Z" agent="Codex" version="24.7.17" type="device" compressed="false">
+  <diagram id="weixin-blog-business-overview" name="商业架构">
+    <mxGraphModel dx="1400" dy="720" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="area-user" value="&lt;b&gt;用户&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;需求发起方&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingTop=16;spacingLeft=16;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontSize=20;fontColor=#0F172A;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="25" y="35" width="250" height="460" as="geometry"/>
+        </mxCell>
+        <mxCell id="area-secretariat" value="&lt;b&gt;秘书处&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;接收需求并把素材转化为可发布内容&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingTop=16;spacingLeft=16;fillColor=#EFF6FF;strokeColor=#60A5FA;fontSize=20;fontColor=#0F172A;arcSize=4;" vertex="1" parent="1">
+          <mxGeometry x="315" y="35" width="735" height="460" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="user" value="&lt;b&gt;投稿用户&lt;/b&gt;&lt;br&gt;&lt;br&gt;发文需求&lt;br&gt;Source 材料&lt;br&gt;必要补充信息" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CBD5E1;fontColor=#0F172A;fontSize=16;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="50" y="185" width="200" height="185" as="geometry"/>
+        </mxCell>
+        <mxCell id="wechat-client" value="&lt;b&gt;微信客户端&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingTop=16;spacingLeft=20;fillColor=#FFF7ED;strokeColor=#FB923C;fontColor=#0F172A;fontSize=16;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="350" y="155" width="285" height="245" as="geometry"/>
+        </mxCell>
+        <mxCell id="wechat-conversation" value="用户会话 · 接收与沟通" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#FDBA74;fontColor=#0F172A;fontSize=14;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="375" y="225" width="235" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="file-transfer-assistant" value="&lt;b&gt;文件传输助手&lt;/b&gt; · 任务入口" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#FDBA74;fontColor=#0F172A;fontSize=14;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="375" y="300" width="235" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent" value="&lt;b&gt;Agent&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingTop=16;spacingLeft=20;fillColor=#DBEAFE;strokeColor=#3B82F6;fontColor=#0F172A;fontSize=16;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="690" y="120" width="335" height="335" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent-rewrite" value="识别投稿任务" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#93C5FD;fontColor=#0F172A;fontSize=14;arcSize=14;" vertex="1" parent="1">
+          <mxGeometry x="715" y="190" width="285" height="43" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent-quality" value="抓取原文与图片" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#93C5FD;fontColor=#0F172A;fontSize=14;arcSize=14;" vertex="1" parent="1">
+          <mxGeometry x="715" y="245" width="285" height="43" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent-publish" value="洗稿并生成文章" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#93C5FD;fontColor=#0F172A;fontSize=14;arcSize=14;" vertex="1" parent="1">
+          <mxGeometry x="715" y="300" width="285" height="43" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent-repository" value="&lt;b&gt;本地任务库&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#64748B&quot;&gt;保存投稿任务、来源素材、洗稿产物与发布记录&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;verticalAlign=middle;align=left;spacingLeft=24;fillColor=#FDF2F8;strokeColor=#F472B6;fontColor=#0F172A;fontSize=16;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="315" y="520" width="735" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent-authorized-publish" value="按明确授权发布" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#93C5FD;fontColor=#0F172A;fontSize=14;arcSize=14;" vertex="1" parent="1">
+          <mxGeometry x="715" y="355" width="285" height="43" as="geometry"/>
+        </mxCell>
+        <mxCell id="blog-service" value="&lt;b&gt;Blog&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#8B5CF6;fontColor=#0F172A;fontSize=18;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1185" y="310" width="135" height="135" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="main-flow-label" value="业务主链路：提出需求 → 统一接收 → 内容生产 → Blog 发布" style="text;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontColor=#64748B;fontSize=15;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="430" y="660" width="550" height="35" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-user-wechat" value="需求 + Source" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#2563EB;fontColor=#64748B;fontSize=13;" edge="1" parent="1" source="user" target="wechat-conversation">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-conversation-transfer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;" edge="1" parent="1" source="wechat-conversation" target="file-transfer-assistant">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-wechat-agent" value="Agent 主动抓取" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#2563EB;fontColor=#64748B;fontSize=13;" edge="1" parent="1" source="agent-rewrite" target="file-transfer-assistant">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-agent-blog" value="发布内容" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#7C3AED;fontColor=#64748B;fontSize=13;" edge="1" parent="1" source="agent-authorized-publish" target="blog-service">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-agent-repository" value="全程留档" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#DB2777;dashed=1;dashPattern=7 6;fontColor=#64748B;fontSize=13;" edge="1" parent="1" source="agent" target="agent-repository">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-feedback" value="沟通、补充与结果反馈" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748B;dashed=1;dashPattern=7 6;fontColor=#64748B;fontSize=13;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="1" source="wechat-conversation" target="user">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
